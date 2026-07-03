@@ -23,6 +23,17 @@ A native Linux desktop app built with Tauri 2: a Rust backend samples your hardw
 | Frontend | TypeScript + Vite, zero UI frameworks — hand-built charts on `<canvas>` |
 | Storage | SQLite vault at `~/.local/share/aura-pulse/`, AI config at `~/.config/aura-pulse/ai.json` (mode 0600) |
 
+## Install
+
+**npm** (Linux x64 — ships a prebuilt binary):
+
+```bash
+npm install -g aura-pulse
+aura-pulse
+```
+
+Runtime deps: `libwebkit2gtk-4.1-0` and GTK 3 (preinstalled on most desktop distros). For start-menu integration and dependency handling, prefer the `.deb` below.
+
 ## Build & run
 
 Requirements: Node ≥ 18, Rust stable, and the [Tauri 2 Linux prerequisites](https://tauri.app/start/prerequisites/) (webkit2gtk 4.1 et al.).

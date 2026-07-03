@@ -1,14 +1,47 @@
 {
   "name": "aura-pulse",
-  "private": true,
   "version": "0.1.0",
+  "description": "System telemetry, AI clipboard vault & hardware benchmarks in a Tron-grade cockpit — native Linux app (Tauri 2 + Rust). npm package ships a prebuilt Linux x64 binary.",
+  "license": "MIT",
+  "author": "Dusan Milosavljevic <leanproiq@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/milodule3-debug/aura-pulse.git"
+  },
+  "homepage": "https://github.com/milodule3-debug/aura-pulse#readme",
+  "keywords": [
+    "system-monitor",
+    "telemetry",
+    "clipboard-manager",
+    "benchmark",
+    "llm",
+    "tauri",
+    "linux",
+    "desktop",
+    "cyberpunk"
+  ],
   "type": "module",
+  "bin": {
+    "aura-pulse": "bin/aura-pulse.js"
+  },
+  "files": [
+    "bin/",
+    "native/",
+    "docs/screenshot.png"
+  ],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "prepublishOnly": "mkdir -p native && cp src-tauri/target/release/aura-pulse native/aura-pulse && chmod +x native/aura-pulse bin/aura-pulse.js"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.1.1",

@@ -1,0 +1,36 @@
+:root {
+  /* -------- palette -------- */
+  --bg-0: #04070c;
+  --bg-1: #070d16;
+  --bg-2: #0a1420;
+  --panel: rgba(10, 21, 34, 0.62);
+  --panel-solid: #0a1522;
+  --line: rgba(0, 229, 255, 0.14);
+  --line-strong: rgba(0, 229, 255, 0.35);
+
+  --cyan: #00e5ff;
+  --cyan-dim: #1d9cb4;
+  --cyan-ghost: rgba(0, 229, 255, 0.08);
+  --magenta: #ff2d78;
+  --violet: #9d6bff;
+  --amber: #ffb02e;
+  --lime: #47ffa0;
+  --red: #ff3b5c;
+
+  --text-hi: #d9f4ff;
+  --text-mid: #86aec4;
+  --text-low: #4a6b80;
+
+  /* -------- type -------- */
+  --font-display: "Orbitron", sans-serif;
+  --font-ui: "Rajdhani", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", monospace;
+
+  /* -------- fx -------- */
+  --glow-cyan: 0 0 12px rgba(0, 229, 255, 0.35), 0 0 32px rgba(0, 229, 255, 0.12);
+  --glow-magenta: 0 0 12px rgba(255, 45, 120, 0.4), 0 0 32px rgba(255, 45, 120, 0.15);
+  --radius: 10px;
+
+  --topbar-h: 58px;
+  --sidebar-w: 292px;
+}

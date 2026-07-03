@@ -1,0 +1,46 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod ai;
+mod bench;
+mod sysopt;
+mod telemetry;
+mod vault;
+
+use std::sync::Mutex;
+
+fn main() {
+    tauri::Builder::default()
+        .manage(telemetry::TelemetryState(Mutex::new(Default::default())))
+        .manage(vault::VaultState(Mutex::new(vault::open_db())))
+        .manage(ai::AiState(Mutex::new(ai::load_config())))
+        .setup(|app| {
+            telemetry::spawn(app.handle().clone());
+            vault::spawn_watcher(app.handle().clone());
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            telemetry::telemetry_snapshot,
+            vault::vault_list,
+            vault::vault_get,
+            vault::vault_delete,
+            vault::vault_pin,
+            vault::vault_wipe,
+            vault::vault_copy,
+            vault::vault_add_text,
+            vault::vault_add_image,
+            vault::vault_stats,
+            ai::ai_get_config,
+            ai::ai_set_config,
+            ai::ai_test,
+            ai::ai_run,
+            ai::ai_chat,
+            bench::bench_run,
+            sysopt::sysopt_get,
+            sysopt::sysopt_set_profile,
+            sysopt::sysopt_set_boost,
+            sysopt::sysopt_set_swappiness,
+            sysopt::sysopt_drop_caches,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running aura pulse");
+}

@@ -23,7 +23,11 @@ jobs:
           workspaces: src-tauri
 
       - name: Install frontend deps
-        run: npm ci
+        # package.json pins os/linux for the npm binary distribution;
+        # drop the guard on the runner so the Windows build can install.
+        run: |
+          npm pkg delete os cpu
+          npm ci
 
       - name: Build Tauri app (NSIS installer + MSI)
         run: npm run tauri build

@@ -106,6 +106,7 @@ async function mockInvoke(cmd: string, args: any): Promise<any> {
   if (!mockClips.length) seedMockClips();
   await new Promise((r) => setTimeout(r, cmd.startsWith("ai_") || cmd === "bench_run" ? 700 : 60));
   switch (cmd) {
+    case "app_os": return "linux";
     case "telemetry_snapshot": return mockSnapshot(performance.now() / 1000);
     case "vault_list": {
       const a = args?.args ?? {};
@@ -124,6 +125,32 @@ async function mockInvoke(cmd: string, args: any): Promise<any> {
       mockClips.unshift({ id: Date.now(), kind: "text", content: args.content, thumb: null, image: null, width: 0, height: 0, pinned: false, created_at: Date.now(), title: null, summary: null, tags: null, has_ai: false, ocr: null, description: null, markdown: null, design_json: null });
       return null;
     }
+    case "vault_add_image": {
+      mockClips.unshift({ id: Date.now(), kind: "image", content: null, thumb: null, image: args.dataB64 ?? null, width: 64, height: 64, pinned: false, created_at: Date.now(), title: null, summary: null, tags: null, has_ai: false, ocr: null, description: null, markdown: null, design_json: null });
+      return mockClips[0].id;
+    }
+    case "vault_add_audio": {
+      mockClips.unshift({ id: Date.now(), kind: "audio", content: `[audio] ${args.name} (mock)`, thumb: null, image: null, width: 0, height: 0, pinned: false, created_at: Date.now(), title: null, summary: null, tags: null, has_ai: false, ocr: null, description: null, markdown: null, design_json: null });
+      return mockClips[0].id;
+    }
+    case "vault_add_path": {
+      const isImg = args.kind === "image";
+      mockClips.unshift({ id: Date.now(), kind: isImg ? "image" : "audio", content: isImg ? null : `[audio] ${args.path}`, thumb: null, image: null, width: 0, height: 0, pinned: false, created_at: Date.now(), title: null, summary: null, tags: null, has_ai: false, ocr: null, description: null, markdown: null, design_json: null });
+      return mockClips[0].id;
+    }
+    case "ai_transcribe": {
+      const c = mockClips.find((c) => c.id === args.clipId);
+      const describe = args.mode === "describe";
+      const text = describe
+        ? "(mock) Upbeat synth track, female vocal, driving beat — simulated description."
+        : "(mock) This is a simulated transcript of the audio clip.";
+      if (c) {
+        if (describe) c.description = text;
+        else c.ocr = text;
+        c.has_ai = true;
+      }
+      return text;
+    }
     case "vault_stats": return { total: mockClips.length, pinned: mockClips.filter((c) => c.pinned).length, by_kind: Object.entries(mockClips.reduce((m: any, c) => ((m[c.kind] = (m[c.kind] ?? 0) + 1), m), {})), db_bytes: 482304 };
     case "ai_get_config": return { active: "ollama", providers: { openai: { kind: "openai", label: "OpenAI", api_key: "", model: "gpt-4o-mini", base_url: "https://api.openai.com/v1" }, anthropic: { kind: "anthropic", label: "Anthropic", api_key: "", model: "claude-sonnet-5", base_url: "https://api.anthropic.com" }, ollama: { kind: "openai", label: "Ollama (local)", api_key: "", model: "llama3.2", base_url: "http://127.0.0.1:11434/v1" }, zhipu: { kind: "openai", label: "ZhiPu GLM-5.2", api_key: "", model: "glm-5.2", base_url: "https://open.bigmodel.cn/api/coding/paas/v4" } } };
     case "ai_set_config": return null;
@@ -134,8 +161,19 @@ async function mockInvoke(cmd: string, args: any): Promise<any> {
       if (args.test === "cpu") return { single_mops: 412, multi_mops: 4620, threads: 16, scaling: 11.2 };
       if (args.test === "memory") return { gbps_read: 21.4, gbps_write: 14.2, gbps_copy: 17.8 };
       if (args.test === "disk") return { write_mbps: 1840, read_mbps: 3900, note: "read is OS-cache assisted", path: "~/.local/share/aura-pulse" };
-      return { bandwidth_gbps: 17.8, effective_gbps: 12.8, estimates: [{ model: "1B q4", tok_s: 17, fits_ram: true }, { model: "3B q4", tok_s: 6.4, fits_ram: true }, { model: "7B q4", tok_s: 2.9, fits_ram: true }, { model: "13B q4", tok_s: 1.6, fits_ram: true }, { model: "34B q4", tok_s: 0.65, fits_ram: false }], ollama: { model: "llama3.2:latest", tok_s: 9.8, prompt_tok_s: 61 } };
+      return { bandwidth_gbps: 17.8, effective_gbps: 12.8, estimates: [{ model: "1B q4", tok_s: 17, fits_ram: true }, { model: "3B q4", tok_s: 6.4, fits_ram: true }, { model: "7B q4", tok_s: 2.9, fits_ram: true }, { model: "13B q4", tok_s: 1.6, fits_ram: true }, { model: "34B q4", tok_s: 0.65, fits_ram: false }], ollama: { model: "llama3.2:latest", tok_s: 9.8, prompt_tok_s: 61 }, lmstudio: { model: "local-model", tok_s: 12.4, prompt_tok_s: 0 } };
+    case "ai_optimize_generate":
+      return {
+        state: "loadavg: 2.41 3.02 3.11\ncpu: 16 threads, Mock CPU\ncpu governor: performance\nMemTotal: 12000000 kB\nMemAvailable: 3200000 kB\nSwapTotal: 12000000 kB\nSwapFree: 2600000 kB\nvm.swappiness: 60\ndisk /: 155 GB total, 41 GB free",
+        filtered: 1,
+        modules: [
+          { title: "Lower swappiness for desktop use", rationale: "9.4 GB of swap is in use with swappiness 60 — lowering to 10 keeps active apps in RAM.", impact: "high", risk: "safe", requires_root: true, commands: ["sysctl -w vm.swappiness=10"] },
+          { title: "Enable scheduler autogroup", rationale: "Improves desktop responsiveness under the current load of 2.4 by grouping per-session tasks.", impact: "medium", risk: "safe", requires_root: true, commands: ["sysctl -w kernel.sched_autogroup_enabled=1"] },
+        ],
+      };
+    case "ai_optimize_apply": return "(mock) vm.swappiness = 10";
     case "sysopt_get": return { profile: "performance", profiles: ["performance", "balanced", "power-saver"], governor: "performance", epp: "performance", boost: true, swappiness: 60, has_ppd: true };
+    case "sysopt_balance_cores": return "cores onlined: 0 | governor: performance (all cores) | autogroup: on | IRQ spread: rebalanced";
     case "sysopt_set_profile": case "sysopt_set_boost": case "sysopt_set_swappiness": case "sysopt_drop_caches": return null;
     default: throw new Error(`mock: unhandled command ${cmd}`);
   }
@@ -143,12 +181,59 @@ async function mockInvoke(cmd: string, args: any): Promise<any> {
 
 // ---------------- public API ----------------
 
+// Live activity signals consumed by the Global Sphere and status caption.
+export const activity = {
+  ai: 0, // in-flight model calls
+  vaultAt: 0, // performance.now() of the last clipboard capture
+};
+
+const AI_MODEL_CMDS = new Set(["ai_test", "ai_run", "ai_chat", "ai_transcribe", "ai_optimize_generate"]);
+
 export async function call<T = any>(cmd: string, args?: Record<string, any>): Promise<T> {
-  if (isTauri) return tauriInvoke<T>(cmd, args);
-  return mockInvoke(cmd, args) as Promise<T>;
+  const tracked = AI_MODEL_CMDS.has(cmd);
+  if (tracked) activity.ai++;
+  try {
+    if (isTauri) return await tauriInvoke<T>(cmd, args);
+    return (await mockInvoke(cmd, args)) as T;
+  } finally {
+    if (tracked) activity.ai--;
+  }
 }
 
 type Unsub = () => void;
+
+// Native (Tauri) file drag-drop. With dragDropEnabled (the default) the
+// webview swallows HTML5 drop events, so file drops only arrive through
+// this event — as filesystem paths, with positions in physical pixels.
+export type DragDropInfo =
+  | { type: "over"; x: number; y: number }
+  | { type: "drop"; paths: string[]; x: number; y: number }
+  | { type: "leave" };
+
+export function onDragDrop(cb: (e: DragDropInfo) => void): Unsub {
+  if (!isTauri) return () => {};
+  let un: (() => void) | null = null;
+  let dead = false;
+  import("@tauri-apps/api/webview").then(async ({ getCurrentWebview }) => {
+    const u = await getCurrentWebview().onDragDropEvent((ev) => {
+      const p = ev.payload;
+      const scale = window.devicePixelRatio || 1;
+      if (p.type === "enter" || p.type === "over") {
+        cb({ type: "over", x: p.position.x / scale, y: p.position.y / scale });
+      } else if (p.type === "drop") {
+        cb({ type: "drop", paths: p.paths, x: p.position.x / scale, y: p.position.y / scale });
+      } else {
+        cb({ type: "leave" });
+      }
+    });
+    if (dead) u();
+    else un = u;
+  });
+  return () => {
+    dead = true;
+    un?.();
+  };
+}
 
 export function onTelemetry(cb: (s: Snapshot) => void): Unsub {
   if (isTauri) {
@@ -172,3 +257,4 @@ export function onEvent<T = any>(name: string, cb: (payload: T) => void): Unsub 
 // Shared latest-snapshot store so components can read without subscribing.
 export const latest: { snap: Snapshot | null } = { snap: null };
 onTelemetry((s) => (latest.snap = s));
+onEvent("vault_changed", () => (activity.vaultAt = performance.now()));

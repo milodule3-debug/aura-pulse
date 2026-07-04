@@ -67,7 +67,41 @@ export async function maybeRunSelftest() {
     fail("ai_config", e);
   }
 
-  // 5. quick memory benchmark
+  // 5. native drop ingestion (vault_add_path) — dev CWD is src-tauri/
+  if (isTauri) {
+    try {
+      await call("vault_add_path", { path: "icons/32x32.png", kind: "image" });
+      await new Promise((r) => setTimeout(r, 500)); // let external observers see the row
+      const imgs = await call<any[]>("vault_list", { args: { kind: "image", limit: 10 } });
+      const fresh = imgs.find((c) => !c.pinned && Date.now() - c.created_at < 15000);
+      if (!fresh) throw new Error("dropped image not found in vault");
+      await call("vault_delete", { id: fresh.id });
+      ok("vault_add_path", `ingested icons/32x32.png as image clip id ${fresh.id}, cleaned up`);
+    } catch (e) {
+      fail("vault_add_path", e);
+    }
+  }
+
+  // 5b. picker/drop ingestion: raw-base64 JPEG through vault_add_image
+  if (isTauri) {
+    try {
+      const cv = document.createElement("canvas");
+      cv.width = cv.height = 24;
+      const cx = cv.getContext("2d")!;
+      cx.fillStyle = "#00e5ff";
+      cx.fillRect(0, 0, 24, 24);
+      const b64 = cv.toDataURL("image/jpeg").split(",")[1]; // raw base64, no data-URL prefix
+      const id = await call<number>("vault_add_image", { dataB64: b64 });
+      if (!id) throw new Error("no clip id returned");
+      await new Promise((r) => setTimeout(r, 400)); // let external observers see the row
+      await call("vault_delete", { id });
+      ok("vault_add_image(b64 jpeg)", `decoded + stored as clip id ${id}, cleaned up`);
+    } catch (e) {
+      fail("vault_add_image(b64 jpeg)", e);
+    }
+  }
+
+  // 6. quick memory benchmark
   try {
     const b = await call<any>("bench_run", { test: "memory" });
     ok("bench_memory", `read ${b.gbps_read.toFixed(1)} / write ${b.gbps_write.toFixed(1)} / copy ${b.gbps_copy.toFixed(1)} GB/s`);

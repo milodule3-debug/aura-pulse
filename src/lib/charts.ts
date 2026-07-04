@@ -86,6 +86,9 @@ export class StripChart {
   }
 
   draw() {
+    // Hidden tab: data keeps accumulating in the rings, but skip the
+    // canvas work — it's the expensive part at 10 Hz.
+    if (this.canvas.offsetParent === null) return;
     const { ctx, w, h } = sizeCanvas(this.canvas, this.opts.height);
     ctx.clearRect(0, 0, w, h);
 
@@ -236,6 +239,7 @@ export class RingGauge {
   }
 
   draw() {
+    if (this.canvas.offsetParent === null) return;
     const dpr = window.devicePixelRatio || 1;
     const s = this.size;
     if (this.canvas.width !== s * dpr) {

@@ -119,6 +119,7 @@ pub fn classify(text: &str) -> &'static str {
 enum ClipData {
     Text(String),
     Image { png: Vec<u8>, w: u32, h: u32 },
+    Audio { bytes: Vec<u8>, name: String },
 }
 
 fn encode_png(rgba: &[u8], w: u32, h: u32) -> Option<Vec<u8>> {
@@ -141,11 +142,11 @@ fn wl_paste_text() -> Option<String> {
     None
 }
 
-fn insert_clip(conn: &Connection, data: ClipData, app: &AppHandle) {
+fn insert_clip(conn: &Connection, data: ClipData, app: &AppHandle) -> Option<i64> {
     let (kind, content, payload, thumb, w, h, hash) = match data {
         ClipData::Text(t) => {
             if t.trim().is_empty() || t.len() > 2_000_000 {
-                return;
+                return None;
             }
             let hash = hash_of(t.as_bytes());
             (classify(&t).to_string(), Some(t), None::<Vec<u8>>, None::<Vec<u8>>, 0u32, 0u32, hash)
@@ -154,6 +155,14 @@ fn insert_clip(conn: &Connection, data: ClipData, app: &AppHandle) {
             let hash = hash_of(&png);
             let thumb = encode_png_thumb(&png);
             ("image".to_string(), None, Some(png), thumb, w, h, hash)
+        }
+        ClipData::Audio { bytes, name } => {
+            if bytes.is_empty() {
+                return None;
+            }
+            let hash = hash_of(&bytes);
+            let label = format!("[audio] {} ({:.1} MB)", name, bytes.len() as f64 / 1e6);
+            ("audio".to_string(), Some(label), Some(bytes), None, 0u32, 0u32, hash)
         }
     };
 
@@ -165,7 +174,7 @@ fn insert_clip(conn: &Connection, data: ClipData, app: &AppHandle) {
         conn.execute("UPDATE clips SET created_at = ?1 WHERE id = ?2", params![now_ms(), id])
             .ok();
         let _ = app.emit("vault_changed", id);
-        return;
+        return Some(id);
     }
 
     conn.execute(
@@ -174,6 +183,7 @@ fn insert_clip(conn: &Connection, data: ClipData, app: &AppHandle) {
         params![kind, content, payload, thumb, w, h, hash, now_ms()],
     )
     .ok();
+    let id = conn.last_insert_rowid();
     conn.execute(
         "DELETE FROM clips WHERE pinned = 0 AND id NOT IN
          (SELECT id FROM clips ORDER BY pinned DESC, created_at DESC LIMIT ?1)",
@@ -181,6 +191,7 @@ fn insert_clip(conn: &Connection, data: ClipData, app: &AppHandle) {
     )
     .ok();
     let _ = app.emit("vault_changed", 0);
+    Some(id)
 }
 
 fn encode_png_thumb(png: &[u8]) -> Option<Vec<u8>> {
@@ -443,27 +454,77 @@ pub fn vault_copy(state: tauri::State<'_, VaultState>, id: i64) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn vault_add_text(state: tauri::State<'_, VaultState>, app: AppHandle, content: String) -> Result<(), String> {
+pub fn vault_add_text(state: tauri::State<'_, VaultState>, app: AppHandle, content: String) -> Result<i64, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
-    insert_clip(&conn, ClipData::Text(content), &app);
-    Ok(())
+    Ok(insert_clip(&conn, ClipData::Text(content), &app).unwrap_or(0))
 }
 
-#[tauri::command]
-pub fn vault_add_image(state: tauri::State<'_, VaultState>, app: AppHandle, data_b64: String) -> Result<(), String> {
-    let bytes = B64.decode(data_b64.trim_start_matches(|c| c != ',').trim_start_matches(','))
-        .or_else(|_| B64.decode(&data_b64))
-        .map_err(|e| e.to_string())?;
-    let img = image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
+fn store_image_bytes(conn: &Connection, bytes: &[u8], app: &AppHandle) -> Result<i64, String> {
+    let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
     let rgba = img.to_rgba8();
     let (w, h) = (rgba.width(), rgba.height());
     let mut png = Cursor::new(Vec::new());
     image::DynamicImage::ImageRgba8(rgba)
         .write_to(&mut png, image::ImageFormat::Png)
         .map_err(|e| e.to_string())?;
+    Ok(insert_clip(conn, ClipData::Image { png: png.into_inner(), w, h }, app).unwrap_or(0))
+}
+
+/// Decode a payload that may be raw base64 or a data URL ("data:...;base64,<payload>").
+fn b64_payload(data_b64: &str) -> Result<Vec<u8>, String> {
+    let raw = match data_b64.split_once(',') {
+        Some((head, tail)) if head.contains("base64") => tail,
+        _ => data_b64,
+    };
+    let bytes = B64.decode(raw.trim()).map_err(|e| format!("invalid base64 payload: {}", e))?;
+    if bytes.is_empty() {
+        return Err("empty payload".into());
+    }
+    Ok(bytes)
+}
+
+#[tauri::command]
+pub fn vault_add_image(state: tauri::State<'_, VaultState>, app: AppHandle, data_b64: String) -> Result<i64, String> {
+    let bytes = b64_payload(&data_b64)?;
     let conn = state.0.lock().map_err(|e| e.to_string())?;
-    insert_clip(&conn, ClipData::Image { png: png.into_inner(), w, h }, &app);
-    Ok(())
+    store_image_bytes(&conn, &bytes, &app)
+}
+
+#[tauri::command]
+pub fn vault_add_audio(state: tauri::State<'_, VaultState>, app: AppHandle, data_b64: String, name: String) -> Result<i64, String> {
+    let bytes = b64_payload(&data_b64)?;
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(insert_clip(&conn, ClipData::Audio { bytes, name }, &app).unwrap_or(0))
+}
+
+/// Ingest a file dropped via the native (Tauri) drag-drop event, which
+/// delivers paths rather than file contents.
+#[tauri::command]
+pub fn vault_add_path(state: tauri::State<'_, VaultState>, app: AppHandle, path: String, kind: String) -> Result<i64, String> {
+    const IMAGE_EXT: [&str; 7] = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff"];
+    const AUDIO_EXT: [&str; 8] = ["mp3", "wav", "ogg", "flac", "m4a", "opus", "aac", "wma"];
+    let p = std::path::Path::new(&path);
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    match kind.as_str() {
+        "image" => {
+            if !IMAGE_EXT.contains(&ext.as_str()) {
+                return Err("Not an image file".into());
+            }
+            let bytes = std::fs::read(p).map_err(|e| format!("failed to read {}: {}", path, e))?;
+            let conn = state.0.lock().map_err(|e| e.to_string())?;
+            store_image_bytes(&conn, &bytes, &app)
+        }
+        "audio" => {
+            if !AUDIO_EXT.contains(&ext.as_str()) {
+                return Err("Not an audio file".into());
+            }
+            let bytes = std::fs::read(p).map_err(|e| format!("failed to read {}: {}", path, e))?;
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or(path.as_str()).to_string();
+            let conn = state.0.lock().map_err(|e| e.to_string())?;
+            Ok(insert_clip(&conn, ClipData::Audio { bytes, name }, &app).unwrap_or(0))
+        }
+        other => Err(format!("unknown drop kind: {}", other)),
+    }
 }
 
 #[derive(Serialize)]

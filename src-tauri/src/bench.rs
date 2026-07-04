@@ -161,23 +161,86 @@ fn bench_disk(app: &AppHandle) -> Result<Value, String> {
 
 // ---------- LLM estimation ----------
 
-async fn probe_ollama() -> Option<Value> {
+async fn probe_lmstudio() -> Result<Value, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(90))
         .build()
-        .ok()?;
-    let tags: Value = client
-        .get("http://127.0.0.1:11434/api/tags")
-        .timeout(Duration::from_secs(2))
+        .map_err(|e| format!("failed to build HTTP client: {}", e))?;
+
+    // LM Studio uses OpenAI-compatible /v1/models endpoint
+    let models: Value = client
+        .get("http://127.0.0.1:1234/v1/models")
+        .timeout(Duration::from_secs(5))
+        .header("User-Agent", "Aura-Pulse/0.3.0")
         .send()
         .await
-        .ok()?
+        .map_err(|e| format!("LM Studio not reachable at http://127.0.0.1:1234 — {}", e))?
         .json()
         .await
-        .ok()?;
-    let model = tags["models"][0]["name"].as_str()?.to_string();
+        .map_err(|e| format!("failed to parse LM Studio models response: {}", e))?;
+
+    let model = models["data"][0]["id"]
+        .as_str()
+        .ok_or_else(|| "no models found in LM Studio".to_string())?
+        .to_string();
+
+    // Use OpenAI-compatible /v1/chat/completions endpoint
+    let t0 = Instant::now();
+    let resp: Value = client
+        .post("http://127.0.0.1:1234/v1/chat/completions")
+        .header("User-Agent", "Aura-Pulse/0.3.0")
+        .json(&json!({
+            "model": model,
+            "messages": [{"role": "user", "content": "Write one short sentence about neon cities."}],
+            "max_tokens": 48
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("LM Studio completion request failed: {}", e))?
+        .json()
+        .await
+        .map_err(|e| format!("failed to parse LM Studio completion response: {}", e))?;
+
+    // Wall time includes prompt eval, so this slightly understates generation
+    // speed — but counting prompt tokens would overstate it far more.
+    let elapsed = t0.elapsed().as_secs_f64().max(1e-3);
+    let gen_tokens = resp["usage"]["completion_tokens"]
+        .as_f64()
+        .ok_or_else(|| "missing completion_tokens in LM Studio response".to_string())?;
+
+    Ok(json!({
+        "model": model,
+        "tok_s": gen_tokens / elapsed,
+        "prompt_tok_s": 0.0, // LM Studio doesn't provide timing breakdown
+    }))
+}
+
+async fn probe_ollama() -> Result<Value, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {}", e))?;
+
+    // Add User-Agent header — some local servers drop requests without it
+    let tags: Value = client
+        .get("http://127.0.0.1:11434/api/tags")
+        .timeout(Duration::from_secs(5))
+        .header("User-Agent", "Aura-Pulse/0.3.0")
+        .send()
+        .await
+        .map_err(|e| format!("Ollama not reachable at http://127.0.0.1:11434 — {}", e))?
+        .json()
+        .await
+        .map_err(|e| format!("failed to parse Ollama tags response: {}", e))?;
+
+    let model = tags["models"][0]["name"]
+        .as_str()
+        .ok_or_else(|| "no models found in Ollama".to_string())?
+        .to_string();
+
     let resp: Value = client
         .post("http://127.0.0.1:11434/api/generate")
+        .header("User-Agent", "Aura-Pulse/0.3.0")
         .json(&json!({
             "model": model,
             "prompt": "Write one short sentence about neon cities.",
@@ -186,15 +249,19 @@ async fn probe_ollama() -> Option<Value> {
         }))
         .send()
         .await
-        .ok()?
+        .map_err(|e| format!("Ollama generate request failed: {}", e))?
         .json()
         .await
-        .ok()?;
-    let eval_count = resp["eval_count"].as_f64()?;
-    let eval_ns = resp["eval_duration"].as_f64()?;
+        .map_err(|e| format!("failed to parse Ollama generate response: {}", e))?;
+
+    let eval_count = resp["eval_count"].as_f64()
+        .ok_or_else(|| "missing eval_count in Ollama response".to_string())?;
+    let eval_ns = resp["eval_duration"].as_f64()
+        .ok_or_else(|| "missing eval_duration in Ollama response".to_string())?;
     let ptok = resp["prompt_eval_count"].as_f64().unwrap_or(0.0);
     let pns = resp["prompt_eval_duration"].as_f64().unwrap_or(1.0);
-    Some(json!({
+
+    Ok(json!({
         "model": model,
         "tok_s": eval_count / (eval_ns / 1e9),
         "prompt_tok_s": if pns > 0.0 { ptok / (pns / 1e9) } else { 0.0 },
@@ -226,14 +293,18 @@ async fn bench_llm(app: AppHandle) -> Value {
         })
         .collect();
 
-    progress(&app, "llm", 70.0, "probing Ollama for a real run");
-    let ollama = probe_ollama().await;
+    progress(&app, "llm", 70.0, "probing Ollama + LM Studio");
+    let (ollama, lmstudio) = tokio::join!(probe_ollama(), probe_lmstudio());
+    let ollama = ollama.ok();
+    let lmstudio = lmstudio.ok();
+
     progress(&app, "llm", 100.0, "done");
     json!({
         "bandwidth_gbps": bw,
         "effective_gbps": eff,
         "estimates": estimates,
         "ollama": ollama,
+        "lmstudio": lmstudio,
     })
 }
 

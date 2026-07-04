@@ -203,9 +203,14 @@
   color: var(--text-low);
   font-size: 13px;
   letter-spacing: 0.08em;
+  cursor: pointer;
   transition: all 0.15s;
   text-align: center;
   padding: 10px;
+}
+.dropzone:hover {
+  border-color: var(--cyan-dim);
+  color: var(--text);
 }
 .dropzone.over {
   border-color: var(--cyan);
@@ -567,15 +572,16 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 13px 0;
+  padding: 13px 8px 13px 0;
   border-bottom: 1px solid rgba(0, 229, 255, 0.07);
 }
 .opt-row:last-child { border-bottom: none; }
-.opt-row .info { flex: 1; }
+.opt-row .info { flex: 1; min-width: 0; }
 .opt-row .info .t { font-weight: 600; font-size: 14.5px; color: var(--text-hi); letter-spacing: 0.04em; }
 .opt-row .info .d { font-size: 12.5px; color: var(--text-low); margin-top: 1px; }
 .opt-row input[type="range"] {
-  flex: 0 0 160px;
+  flex: 0 1 160px;
+  min-width: 90px;
   padding: 0;
   border: none;
   background: transparent;
@@ -590,6 +596,67 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+/* ============ AI optimization modules ============ */
+
+.ai-mod {
+  border: 1px solid rgba(0, 229, 255, 0.14);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 12px;
+}
+.ai-mod-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ai-mod .mod-title {
+  font-weight: 600;
+  color: var(--text-hi);
+  letter-spacing: 0.04em;
+}
+.ai-mod .mod-rationale {
+  font-size: 12.5px;
+  color: var(--text-low);
+  margin: 5px 0 9px;
+}
+.ai-mod-pre {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--cyan);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(0, 229, 255, 0.08);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 0 0 8px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.ai-mod-pre.dim {
+  color: var(--text-low);
+  margin-top: 6px;
+}
+.ai-mod-out {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-low);
+  white-space: pre-wrap;
+}
+.mod-badge {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 2px 9px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  color: var(--cyan-dim);
+}
+.mod-badge.high { color: var(--magenta); border-color: rgba(255, 45, 120, 0.5); }
+.mod-badge.medium { color: #ffc857; border-color: rgba(255, 200, 87, 0.4); }
+.mod-badge.caution { color: #ffc857; border-color: rgba(255, 200, 87, 0.4); }
+.mod-badge.safe { color: #47ffa0; border-color: rgba(71, 255, 160, 0.35); }
+.mod-badge.root { color: var(--magenta); border-color: rgba(255, 45, 120, 0.5); }
 
 /* ================= AI settings ================= */
 

@@ -8,6 +8,12 @@ mod vault;
 
 use std::sync::Mutex;
 
+/// Lets the frontend adapt to the platform (e.g. hide Linux-only tabs).
+#[tauri::command]
+fn app_os() -> &'static str {
+    std::env::consts::OS
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(telemetry::TelemetryState(Mutex::new(Default::default())))
@@ -19,6 +25,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            app_os,
             telemetry::telemetry_snapshot,
             vault::vault_list,
             vault::vault_get,
@@ -28,17 +35,23 @@ fn main() {
             vault::vault_copy,
             vault::vault_add_text,
             vault::vault_add_image,
+            vault::vault_add_path,
+            vault::vault_add_audio,
             vault::vault_stats,
             ai::ai_get_config,
             ai::ai_set_config,
             ai::ai_test,
             ai::ai_run,
             ai::ai_chat,
+            ai::ai_transcribe,
+            ai::ai_optimize_generate,
+            ai::ai_optimize_apply,
             bench::bench_run,
             sysopt::sysopt_get,
             sysopt::sysopt_set_profile,
             sysopt::sysopt_set_boost,
             sysopt::sysopt_set_swappiness,
+            sysopt::sysopt_balance_cores,
             sysopt::sysopt_drop_caches,
         ])
         .run(tauri::generate_context!())

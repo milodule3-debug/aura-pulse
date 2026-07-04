@@ -13,5 +13,11 @@ import "./styles/views.css";
 import { App } from "./app";
 import { maybeRunSelftest } from "./selftest";
 
+// The window is created with dragDropEnabled: false (native interception
+// breaks HTML5 drops on webkit2gtk), so block the webview's default
+// behavior of navigating to files dropped outside a drop zone.
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => e.preventDefault());
+
 new App(document.getElementById("app")!);
 maybeRunSelftest();

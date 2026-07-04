@@ -67,7 +67,7 @@ const TESTS: TestDef[] = [
     id: "llm",
     icon: "spark",
     title: "LLM Inference Estimate",
-    desc: "Token-generation forecast from memory bandwidth; real run via Ollama when available.",
+    desc: "Token-generation forecast from memory bandwidth; real runs via Ollama and LM Studio when detected.",
     render: (r) => {
       const tbl = h(
         "table",
@@ -106,8 +106,22 @@ const TESTS: TestDef[] = [
             bigNum(r.ollama.prompt_tok_s.toFixed(0), "tok/s", "prompt eval"),
           ),
         );
-      } else {
-        parts.push(h("div", { class: "bench-note" }, "Ollama not detected on :11434 — start it for a real measurement."));
+      }
+      if (r.lmstudio) {
+        parts.push(
+          h("div", { class: "ai-result-label", style: { marginTop: "12px" } }, "REAL RUN — LM STUDIO"),
+          h(
+            "div",
+            { class: "bench-result" },
+            bigNum(r.lmstudio.tok_s.toFixed(1), "tok/s", r.lmstudio.model),
+          ),
+          h("div", { class: "bench-note" }, "wall-clock rate incl. prompt eval"),
+        );
+      }
+      if (!r.ollama && !r.lmstudio) {
+        parts.push(
+          h("div", { class: "bench-note" }, "No local runtime detected — start Ollama (:11434) or LM Studio (:1234) for a real measurement."),
+        );
       }
       return h("div", {}, ...parts);
     },

@@ -1,7 +1,8 @@
 // The Global Sphere: a rotating fibonacci point-sphere with orbiting
-// satellites, ping ripples and a load-reactive breathing glow.
+// satellites, ping ripples and a load-reactive breathing glow. Reacts to
+// live app activity: AI calls light an uplink ring, vault captures burst.
 
-import { latest } from "./bridge";
+import { activity, latest } from "./bridge";
 
 interface P3 {
   x: number;
@@ -30,6 +31,7 @@ export class GlobalSphere {
   private sats: Satellite[] = [];
   private raf = 0;
   private lastPing = 0;
+  private lastVaultSeen = 0;
   private t0 = performance.now();
 
   private lastFrame = 0;
@@ -134,6 +136,13 @@ export class GlobalSphere {
       this.lastPing = t;
       this.pings.push({ idx: Math.floor(Math.random() * this.pts.length), t: 0 });
     }
+    // vault capture → burst of node pings
+    if (activity.vaultAt && activity.vaultAt !== this.lastVaultSeen) {
+      this.lastVaultSeen = activity.vaultAt;
+      for (let i = 0; i < 7; i++) {
+        this.pings.push({ idx: Math.floor(Math.random() * this.pts.length), t: 0 });
+      }
+    }
     this.pings = this.pings.filter((p) => p.t < 1);
     for (const p of this.pings) {
       p.t += 0.022;
@@ -146,10 +155,11 @@ export class GlobalSphere {
       ctx.stroke();
     }
 
-    // satellites
+    // satellites — ping harder while an AI call is in flight
+    const aiActive = activity.ai > 0;
     for (const s of this.sats) {
       s.angle += s.speed * 0.016 * (1 + load * 0.8);
-      s.pingT += 0.012;
+      s.pingT += aiActive ? 0.035 : 0.012;
       if (s.pingT > 1) s.pingT = 0;
       const sp: P3 = {
         x: Math.cos(s.angle) * Math.cos(s.incl) * 1.45,
@@ -207,5 +217,15 @@ export class GlobalSphere {
     ctx.strokeStyle = `hsla(${hue},100%,60%,${0.1 + breathe * 0.08})`;
     ctx.lineWidth = 0.7;
     ctx.stroke();
+
+    // AI uplink ring — pulses magenta while a model call is in flight
+    if (aiActive) {
+      const pulse = 0.5 + 0.5 * Math.sin(t * 6);
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * (1.14 + pulse * 0.05), 0, Math.PI * 2);
+      ctx.strokeStyle = `hsla(330,100%,65%,${0.2 + pulse * 0.3})`;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
   }
 }

@@ -194,6 +194,14 @@
   color: var(--text-low);
   text-transform: uppercase;
   pointer-events: none;
+  transition: color 0.3s;
+}
+.sphere-caption.hot {
+  color: var(--magenta);
+  text-shadow: var(--glow-magenta);
+}
+.sphere-caption.warm {
+  color: var(--cyan);
 }
 
 .side-section {

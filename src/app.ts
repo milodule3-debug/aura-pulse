@@ -1,7 +1,7 @@
 // Application shell: topbar with tabs, retractable sidebar hosting the
 // Global Sphere and quick controls, and the routed main view area.
 
-import { call, onTelemetry, Snapshot } from "./lib/bridge";
+import { activity, call, onTelemetry, Snapshot } from "./lib/bridge";
 import { fmtBytes, fmtUptime } from "./lib/format";
 import { h, icon, toast } from "./lib/ui";
 import { GlobalSphere } from "./lib/sphere";
@@ -97,10 +97,11 @@ export class App {
 
     // ---- sidebar ----
     const sphereCanvas = h("canvas");
+    const sphereCaption = h("div", { class: "sphere-caption" }, "Global Sphere");
     this.sidebar = h(
       "aside",
       { class: "sidebar" },
-      h("div", { class: "sphere-wrap" }, sphereCanvas, h("div", { class: "sphere-caption" }, "Global Sphere")),
+      h("div", { class: "sphere-wrap" }, sphereCanvas, sphereCaption),
       this.buildSideSystem(),
       this.buildSidePower(),
       this.buildSideAi(),
@@ -110,6 +111,19 @@ export class App {
     this.root.append(topbar, h("div", { class: "body" }, this.sidebar, this.main));
 
     this.sphere = new GlobalSphere(sphereCanvas as HTMLCanvasElement);
+
+    // Platform adaptation: the Optimization tab is Linux-only (pkexec,
+    // sysfs, power-profiles-daemon have no Windows counterparts yet).
+    call<string>("app_os")
+      .then((os) => {
+        if (os === "windows") {
+          this.tabsEl.get("optimize")?.remove();
+          this.tabsEl.delete("optimize");
+          delete this.views["optimize"];
+          if (this.currentId === "optimize") this.navigate("diagnostics");
+        }
+      })
+      .catch(() => {});
 
     // live topbar stats
     this.unsubs.push(
@@ -122,6 +136,15 @@ export class App {
     const tickClock = () => (clock.textContent = new Date().toLocaleTimeString(undefined, { hour12: false }));
     tickClock();
     setInterval(tickClock, 1000);
+
+    // sphere caption reflects live activity
+    const tickCaption = () => {
+      const vaultFresh = activity.vaultAt > 0 && performance.now() - activity.vaultAt < 3000;
+      sphereCaption.textContent = activity.ai > 0 ? "AI Link Active" : vaultFresh ? "Vault Capture" : "Global Sphere";
+      sphereCaption.classList.toggle("hot", activity.ai > 0);
+      sphereCaption.classList.toggle("warm", activity.ai === 0 && vaultFresh);
+    };
+    setInterval(tickCaption, 500);
   }
 
   private buildSideSystem(): HTMLElement {
@@ -222,18 +245,27 @@ export class App {
     );
   }
 
+  // Views are mounted once and kept alive (hidden) across tab switches so
+  // state survives: bench results, generated modules, chart history.
+  private mounted = new Map<string, { view: View; wrap: HTMLElement }>();
+
   navigate(id: string) {
     if (this.currentId === id) return;
-    this.current?.unmount();
-    this.main.innerHTML = "";
+    if (!this.views[id]) return;
     this.currentId = id;
     location.hash = id;
     for (const [tid, el] of this.tabsEl) el.classList.toggle("active", tid === id);
-    const view = this.views[id]?.();
-    if (!view) return;
-    this.current = view;
-    const wrap = h("div", { class: "view" });
-    this.main.append(wrap);
-    view.mount(wrap);
+    for (const [, m] of this.mounted) m.wrap.style.display = "none";
+    let m = this.mounted.get(id);
+    if (!m) {
+      const view = this.views[id]();
+      const wrap = h("div", { class: "view" });
+      this.main.append(wrap);
+      view.mount(wrap);
+      m = { view, wrap };
+      this.mounted.set(id, m);
+    }
+    m.wrap.style.display = "";
+    this.current = m.view;
   }
 }

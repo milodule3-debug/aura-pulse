@@ -1,6 +1,6 @@
 // The Vault: AI-enhanced clipboard history.
 
-import { call, ClipFull, ClipRow, onEvent } from "../lib/bridge";
+import { call, ClipFull, ClipRow, onDragDrop, onEvent } from "../lib/bridge";
 import { fmtAgo, fmtBytes } from "../lib/format";
 import { confirmDialog, h, icon, toast } from "../lib/ui";
 import type { View } from "../app";
@@ -18,6 +18,7 @@ const FILTERS = [
   { id: "json", label: "JSON" },
   { id: "color", label: "Colors" },
   { id: "image", label: "Images" },
+  { id: "audio", label: "Audio" },
   { id: "pinned", label: "★ Pinned" },
 ];
 
@@ -37,6 +38,8 @@ export class VaultView implements View {
   private filter = "all";
   private drawer: HTMLElement | null = null;
   private unsub: (() => void) | null = null;
+  private dragUnsub: (() => void) | null = null;
+  private activeDz: { el: HTMLElement; kind: "image" | "audio" } | null = null;
   private searchTimer = 0;
 
   mount(root: HTMLElement) {
@@ -107,6 +110,25 @@ export class VaultView implements View {
 
     this.refresh();
     this.unsub = onEvent("vault_changed", () => this.refresh());
+
+    // Native drops (Tauri intercepts HTML5 drag events; files arrive as paths).
+    this.dragUnsub = onDragDrop(async (e) => {
+      const dz = this.activeDz;
+      if (!dz || !dz.el.isConnected) return;
+      if (e.type === "leave") return void dz.el.classList.remove("over");
+      const r = dz.el.getBoundingClientRect();
+      const inside = e.x >= r.left && e.x <= r.right && e.y >= r.top && e.y <= r.bottom;
+      if (e.type === "over") return void dz.el.classList.toggle("over", inside);
+      dz.el.classList.remove("over");
+      if (!inside || !e.paths.length) return;
+      try {
+        await call("vault_add_path", { path: e.paths[0], kind: dz.kind });
+        toast(dz.kind === "image" ? "Image stored in vault" : "Audio reference stored");
+        this.refresh();
+      } catch (err) {
+        toast(String(err), true);
+      }
+    });
   }
 
   private buildCaptureBar(): HTMLElement {
@@ -136,12 +158,12 @@ export class VaultView implements View {
         );
       },
       Image: () => {
-        const dz = h("div", { class: "dropzone" }, "Drop an image here — OCR, description and design extraction become available");
+        const dz = h("div", { class: "dropzone" }, "Drop an image here or click to browse — OCR, description and design extraction become available");
         this.wireDrop(dz, "image");
         body.append(dz);
       },
       Audio: () => {
-        const dz = h("div", { class: "dropzone" }, "Drop an audio file — stored in the vault; transcription arrives with a provider that supports audio input");
+        const dz = h("div", { class: "dropzone" }, "Drop an audio file or click to browse — stored in the vault; transcription arrives with a provider that supports audio input");
         this.wireDrop(dz, "audio");
         body.append(dz);
       },
@@ -156,6 +178,7 @@ export class VaultView implements View {
             tabs.querySelectorAll("button").forEach((x) => x.classList.remove("active"));
             b.classList.add("active");
             body.innerHTML = "";
+            this.activeDz = null;
             modes[name]();
           },
         },
@@ -168,29 +191,86 @@ export class VaultView implements View {
     return h("div", { class: "capture-bar" }, tabs, body);
   }
 
+  private async fileToB64(file: File): Promise<string> {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(bin);
+  }
+
+  private async ingestFile(file: File, kind: "image" | "audio") {
+    if (kind === "image" && !file.type.startsWith("image/")) return toast("Not an image file", true);
+    if (kind === "audio" && !file.type.startsWith("audio/") && !/\.(mp3|wav|ogg|flac|m4a|opus|aac|wma)$/i.test(file.name)) {
+      return toast("Not an audio file", true);
+    }
+    if (file.size > 25_000_000) return toast("File too large (max 25 MB)", true);
+    try {
+      let id: number;
+      if (kind === "image") {
+        id = await call<number>("vault_add_image", { dataB64: await this.fileToB64(file) });
+        toast("Image stored in vault");
+      } else {
+        id = await call<number>("vault_add_audio", { dataB64: await this.fileToB64(file), name: file.name });
+        toast("Audio stored in vault");
+      }
+      this.refresh();
+      this.autoEnrich(id, kind);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  /// Auto-run AI on freshly ingested files when a provider is configured:
+  /// images get summarized, audio gets transcribed/described.
+  private async autoEnrich(id: number, kind: "image" | "audio") {
+    if (!id) return;
+    try {
+      const cfg = await call<any>("ai_get_config");
+      const usable = (p: any) => !!p && (p.api_key || /127\.0\.0\.1|localhost/.test(p.base_url ?? ""));
+      const active = cfg.providers?.[cfg.active];
+      const ok = kind === "image" ? usable(active) : usable(active) || usable(cfg.providers?.gemini);
+      if (!ok) return; // no LLM configured — store silently, enrich later by hand
+      toast(kind === "image" ? "AI summarizing…" : "Transcribing…");
+      if (kind === "image") await call("ai_run", { clipId: id, task: "summarize" });
+      else await call("ai_transcribe", { clipId: id });
+      toast(kind === "image" ? "AI summary ready" : "Transcript ready");
+      this.refresh();
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
   private wireDrop(dz: HTMLElement, kind: "image" | "audio") {
+    this.activeDz = { el: dz, kind };
+    // Primary path: HTML5 drag events — the window is created with
+    // dragDropEnabled: false so webkit delivers them (native interception
+    // otherwise swallows drops and its own events don't fire on Wayland).
+    // The onDragDrop listener in mount() stays as a fallback for platforms
+    // where the config flips back.
+    const picker = h("input", {
+      type: "file",
+      accept: kind === "image" ? "image/*" : "audio/*",
+      style: { display: "none" },
+    }) as HTMLInputElement;
+    picker.onchange = () => {
+      const f = picker.files?.[0];
+      if (f) this.ingestFile(f, kind);
+      picker.value = "";
+    };
+    dz.append(picker);
+    dz.onclick = () => picker.click();
     dz.ondragover = (e) => {
       e.preventDefault();
       dz.classList.add("over");
     };
     dz.ondragleave = () => dz.classList.remove("over");
-    dz.ondrop = async (e) => {
+    dz.ondrop = (e) => {
       e.preventDefault();
       dz.classList.remove("over");
       const file = e.dataTransfer?.files?.[0];
-      if (!file) return;
-      if (kind === "image" && !file.type.startsWith("image/")) return toast("Not an image file", true);
-      const buf = await file.arrayBuffer();
-      const b64 = btoa(new Uint8Array(buf).reduce((s, b) => s + String.fromCharCode(b), ""));
-      if (kind === "image") {
-        await call("vault_add_image", { dataB64: b64 });
-        toast("Image stored in vault");
-      } else {
-        // audio stored as text stub with filename until multimodal audio lands
-        await call("vault_add_text", { content: `[audio] ${file.name} (${fmtBytes(file.size)})` });
-        toast("Audio reference stored");
-      }
-      this.refresh();
+      if (file) this.ingestFile(file, kind);
     };
   }
 
@@ -324,7 +404,7 @@ export class VaultView implements View {
         results.append(h("div", { class: "ai-result-label" }, label), h("div", { class: "ai-result" }, val));
       };
       if (c.title || c.summary) add("Summary", [c.title, c.summary, c.tags].filter(Boolean).join("\n"));
-      add("OCR", c.ocr);
+      add(c.kind === "audio" ? "Transcript" : "OCR", c.ocr);
       add("Description", c.description);
       add("Markdown", c.markdown);
       add("Design JSON", c.design_json);
@@ -332,6 +412,37 @@ export class VaultView implements View {
     renderResults(clip);
 
     const aiBtns = h("div", { class: "ai-actions" });
+    if (clip.kind === "audio") {
+      for (const m of [
+        { mode: "transcribe", label: "Transcribe", done: "Transcription complete" },
+        { mode: "describe", label: "Describe", done: "Description complete" },
+      ]) {
+        const b = h(
+          "button",
+          {
+            class: "btn",
+            onclick: async () => {
+              b.setAttribute("disabled", "");
+              b.textContent = "RUNNING…";
+              try {
+                await call("ai_transcribe", { clipId: id, mode: m.mode });
+                const fresh = await call<ClipFull>("vault_get", { id });
+                renderResults(fresh);
+                toast(m.done);
+              } catch (e) {
+                toast(String(e), true);
+              }
+              b.removeAttribute("disabled");
+              b.innerHTML = "";
+              b.append(icon("spark"), m.label);
+            },
+          },
+          icon("spark"),
+          m.label,
+        );
+        aiBtns.append(b);
+      }
+    }
     for (const t of AI_TASKS) {
       if (t.imageOnly && clip.kind !== "image") continue;
       const b = h(
@@ -417,5 +528,7 @@ export class VaultView implements View {
   unmount() {
     this.closeDrawer();
     this.unsub?.();
+    this.dragUnsub?.();
+    this.activeDz = null;
   }
 }

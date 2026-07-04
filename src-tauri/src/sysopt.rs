@@ -151,6 +151,49 @@ pub async fn sysopt_set_swappiness(value: u32) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Balance load across all CPU cores: online any offlined cores, apply one
+/// governor uniformly, enable scheduler autogroup, spread IRQs when
+/// irqbalance is available. One pkexec script → single auth dialog.
+#[tauri::command]
+pub async fn sysopt_balance_cores() -> Result<String, String> {
+    const SCRIPT: &str = r#"
+onlined=0
+for f in /sys/devices/system/cpu/cpu*/online; do
+  [ -f "$f" ] || continue
+  if [ "$(cat "$f")" = "0" ]; then echo 1 > "$f" && onlined=$((onlined+1)); fi
+done
+gov=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo none)
+if [ "$gov" != "none" ]; then
+  for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo "$gov" > "$g" 2>/dev/null || true; done
+fi
+autogroup=off
+if [ -f /proc/sys/kernel/sched_autogroup_enabled ]; then
+  echo 1 > /proc/sys/kernel/sched_autogroup_enabled && autogroup=on
+fi
+irq=absent
+if command -v irqbalance >/dev/null 2>&1; then
+  irqbalance --oneshot >/dev/null 2>&1 && irq=rebalanced || irq=failed
+fi
+echo "cores onlined: $onlined | governor: $gov (all cores) | autogroup: $autogroup | IRQ spread: $irq"
+"#;
+    tauri::async_runtime::spawn_blocking(|| {
+        let out = Command::new("pkexec")
+            .args(["sh", "-c", SCRIPT])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        } else {
+            Err(format!(
+                "authorization failed: {}",
+                String::from_utf8_lossy(&out.stderr).chars().take(200).collect::<String>()
+            ))
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn sysopt_drop_caches() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(|| {

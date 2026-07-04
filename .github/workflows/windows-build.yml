@@ -30,7 +30,9 @@ jobs:
           npm ci
 
       - name: Build Tauri app (NSIS installer + MSI)
-        run: npm run tauri build
+        # tauri.conf.json pins deb/appimage for Linux; request the Windows
+        # bundle formats explicitly here.
+        run: npm run tauri build -- --bundles nsis,msi
 
       - name: Upload installers
         uses: actions/upload-artifact@v4

@@ -226,9 +226,9 @@ pub async fn sysopt_drop_caches() -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
-// ---------- macOS stubs (not applicable) ----------
+// ---------- Non-Linux stubs (macOS, Windows) ----------
 
-#[cfg(target_os = "macos")]
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 pub fn sysopt_get() -> SysoptInfo {
     SysoptInfo {
@@ -242,31 +242,31 @@ pub fn sysopt_get() -> SysoptInfo {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 pub async fn sysopt_set_profile(_profile: String) -> Result<(), String> {
     Err("power profiles not available on macOS — use System Settings → Battery".into())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 pub async fn sysopt_set_boost(_on: bool) -> Result<(), String> {
     Err("CPU boost control not available on macOS".into())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 pub async fn sysopt_set_swappiness(_value: u32) -> Result<(), String> {
     Err("swappiness control not available on macOS".into())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 pub async fn sysopt_balance_cores() -> Result<String, String> {
     Err("core balancing not available on macOS — the kernel handles this automatically".into())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 pub async fn sysopt_drop_caches() -> Result<(), String> {
     Err("cache dropping not available on macOS".into())

@@ -6,50 +6,43 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write # create releases and attach installers
+  contents: write
 
 jobs:
   build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
+          path: repo
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
+      - name: Remove os/cpu guard from package.json
+        working-directory: repo/app
+        shell: bash
+        run: npm pkg delete os cpu
 
       - name: Install frontend deps
-        # package.json pins os/linux for the npm binary distribution;
-        # drop the guard on the runner so the Windows build can install.
-        run: |
-          npm pkg delete os cpu
-          npm ci
+        working-directory: repo/app
+        run: npm install
 
-      - name: Build Tauri app (NSIS installer + MSI)
-        # tauri.conf.json pins deb/appimage for Linux; request the Windows
-        # bundle formats explicitly here.
-        run: npm run tauri build -- --bundles nsis,msi
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Upload installers
-        uses: actions/upload-artifact@v4
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with:
-          name: aura-pulse-windows
-          path: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/msi/*.msi
-          if-no-files-found: error
+          workspaces: repo/app/src-tauri
 
-      - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+      - name: Build Windows installer
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/msi/*.msi
+          projectPath: repo/app
+          tagName: ${{ github.ref_name }}
+          releaseName: "Aura Pulse ${{ github.ref_name }}"
+          releaseBody: |
+            ## Aura Pulse ${{ github.ref_name }}
+            Download the installer for your platform below.
+          releaseDraft: true
+          prerelease: false

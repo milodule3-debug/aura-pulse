@@ -598,7 +598,6 @@ fn safe_filename(text: &str) -> String {
 
 #[tauri::command]
 pub fn vault_save_as(state: tauri::State<'_, VaultState>, id: i64) -> Result<String, String> {
-    // Fetch clip data first, then drop the lock before opening the file dialog
     let (kind, content, payload) = {
         let conn = state.0.lock().map_err(|e| e.to_string())?;
         conn.query_row(
@@ -609,7 +608,7 @@ pub fn vault_save_as(state: tauri::State<'_, VaultState>, id: i64) -> Result<Str
         .map_err(|e| e.to_string())?
     };
 
-    let default_name = match kind.as_str() {
+    let filename = match kind.as_str() {
         "image" => format!("vault_clip_{}.png", id),
         "audio" => format!("vault_clip_{}.mp3", id),
         "json" | "csv" => {
@@ -622,18 +621,10 @@ pub fn vault_save_as(state: tauri::State<'_, VaultState>, id: i64) -> Result<Str
         }
     };
 
-    let ext = match kind.as_str() {
-        "image" => "png",
-        "audio" => "mp3",
-        "json" | "csv" => kind.as_str(),
-        _ => "txt",
-    };
-
-    let dialog = rfd::FileDialog::new()
-        .set_file_name(&default_name)
-        .add_filter("Save as", &[ext]);
-
-    let path = dialog.save_file().ok_or("cancelled")?;
+    let dir = dirs::download_dir()
+        .or_else(|| dirs::desktop_dir())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let path = dir.join(&filename);
 
     match kind.as_str() {
         "image" | "audio" => {

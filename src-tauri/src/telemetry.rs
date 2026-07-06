@@ -624,7 +624,7 @@ mod imp {
 // ---------- macOS backend: sysinfo crate + sysctl ----------
 
 #[cfg(target_os = "macos")]
-mod macos_imp {
+mod imp {
     use super::*;
     use sysinfo::{Components, Disks, Networks, ProcessesToUpdate, System};
 

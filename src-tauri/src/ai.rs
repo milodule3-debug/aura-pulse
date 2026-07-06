@@ -27,7 +27,10 @@ pub struct AiConfig {
     pub providers: BTreeMap<String, ProviderCfg>,
 }
 
-pub struct AiState(pub Mutex<AiConfig>);
+pub struct AiState {
+    pub config: Mutex<AiConfig>,
+    pub client: reqwest::Client,
+}
 
 fn p(kind: &str, label: &str, model: &str, base: &str) -> ProviderCfg {
     ProviderCfg {
@@ -82,19 +85,20 @@ fn persist(cfg: &AiConfig) {
 
 #[tauri::command]
 pub fn ai_get_config(state: tauri::State<'_, AiState>) -> AiConfig {
-    state.0.lock().unwrap().clone()
+    state.config.lock().unwrap().clone()
 }
 
 #[tauri::command]
 pub fn ai_set_config(state: tauri::State<'_, AiState>, cfg: AiConfig) -> Result<(), String> {
     persist(&cfg);
-    *state.0.lock().map_err(|e| e.to_string())? = cfg;
+    *state.config.lock().map_err(|e| e.to_string())? = cfg;
     Ok(())
 }
 
 // ---------- provider calls ----------
 
 async fn call_provider_with_retry(
+    client: &reqwest::Client,
     cfg: &ProviderCfg,
     system: &str,
     user_text: &str,
@@ -104,7 +108,7 @@ async fn call_provider_with_retry(
 ) -> Result<String, String> {
     let mut last_err = String::new();
     for attempt in 0..max_retries {
-        match call_provider(cfg, system, user_text, image_b64, timeout_secs).await {
+        match call_provider(client, cfg, system, user_text, image_b64, timeout_secs).await {
             Ok(result) => return Ok(result),
             Err(e) => {
                 last_err = e.clone();
@@ -125,16 +129,13 @@ async fn call_provider_with_retry(
 }
 
 async fn call_provider(
+    client: &reqwest::Client,
     cfg: &ProviderCfg,
     system: &str,
     user_text: &str,
     image_b64: Option<&str>,
     timeout_secs: u64,
 ) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(timeout_secs))
-        .build()
-        .map_err(|e| format!("failed to build HTTP client: {}", e))?;
     let base = cfg.base_url.trim_end_matches('/');
 
     // Detect local providers for better error messages
@@ -157,6 +158,7 @@ async fn call_provider(
             });
             let resp = client
                 .post(format!("{}/v1/messages", base))
+                .timeout(std::time::Duration::from_secs(timeout_secs))
                 .header("User-Agent", "Aura-Pulse/0.3.0")
                 .header("x-api-key", &cfg.api_key)
                 .header("anthropic-version", "2023-06-01")
@@ -186,6 +188,7 @@ async fn call_provider(
             let url = format!("{}/models/{}:generateContent?key={}", base, cfg.model, cfg.api_key);
             let resp = client
                 .post(url)
+                .timeout(std::time::Duration::from_secs(timeout_secs))
                 .header("User-Agent", "Aura-Pulse/0.3.0")
                 .json(&body)
                 .send()
@@ -230,6 +233,7 @@ async fn call_provider(
             });
             let mut req = client
                 .post(format!("{}/chat/completions", base))
+                .timeout(std::time::Duration::from_secs(timeout_secs))
                 .header("User-Agent", "Aura-Pulse/0.3.0")
                 .json(&body);
             if !cfg.api_key.is_empty() {
@@ -265,7 +269,7 @@ fn snippet(v: &Value) -> String {
 }
 
 fn get_provider(state: &tauri::State<'_, AiState>, name: Option<&str>) -> Result<ProviderCfg, String> {
-    let cfg = state.0.lock().map_err(|e| e.to_string())?;
+    let cfg = state.config.lock().map_err(|e| e.to_string())?;
     let key = name.map(|s| s.to_string()).unwrap_or_else(|| cfg.active.clone());
     cfg.providers
         .get(&key)
@@ -285,7 +289,7 @@ pub async fn ai_test(state: tauri::State<'_, AiState>, provider: String) -> Resu
     let cfg = get_provider(&state, Some(&provider))?;
     let t0 = Instant::now();
     // Link test should fail fast, not hang for the full generation timeout.
-    match call_provider_with_retry(&cfg, "You are a link tester.", "Reply with exactly: AURA LINK OK", None, 15, 2).await {
+    match call_provider_with_retry(&state.client, &cfg, "You are a link tester.", "Reply with exactly: AURA LINK OK", None, 15, 2).await {
         Ok(reply) => Ok(TestResult {
             ok: true,
             latency_ms: t0.elapsed().as_millis() as u64,
@@ -382,7 +386,7 @@ pub async fn ai_run(
     }
 
     let img_ref = if kind == "image" { image_b64.as_deref() } else { None };
-    let reply = call_provider_with_retry(&cfg, spec.system, &user, img_ref, 120, 3).await?;
+    let reply = call_provider_with_retry(&ai.client, &cfg, spec.system, &user, img_ref, 120, 3).await?;
 
     // Persist results.
     {
@@ -497,7 +501,7 @@ Never suggest deleting files, installing/removing packages, downloading anything
         "Current system state:\n{}\nPropose optimization modules tailored to this exact state. Reference the actual numbers in your rationales.",
         state
     );
-    let reply = call_provider_with_retry(&cfg, system, &user, None, 120, 2).await?;
+    let reply = call_provider_with_retry(&ai.client, &cfg, system, &user, None, 120, 2).await?;
     let cleaned = reply
         .trim()
         .trim_start_matches("```json")
@@ -566,13 +570,9 @@ fn sanitize_commands(raw: &[String], requires_root: &mut bool) -> Vec<String> {
         if c.is_empty() {
             continue;
         }
-        loop {
-            if let Some(rest) = c.strip_prefix("sudo ").or_else(|| c.strip_prefix("doas ")) {
-                c = rest.trim().to_string();
-                *requires_root = true;
-            } else {
-                break;
-            }
+        while let Some(rest) = c.strip_prefix("sudo ").or_else(|| c.strip_prefix("doas ")) {
+            c = rest.trim().to_string();
+            *requires_root = true;
         }
         // Common model slip: 'powerprofilesctl <profile>' missing the 'set'
         // subcommand — repair it (the user reviews the repaired command).
@@ -803,7 +803,9 @@ fn find_whisper() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
         .map(|e| e.path())
         .find(|p| {
             let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            name.starts_with("ggml-") && name.ends_with(".bin") && !name.contains("encoder")
+            name.starts_with("ggml-")
+                && (name.ends_with(".bin") || name.ends_with(".gguf"))
+                && !name.contains("encoder")
         })?;
     Some((bin, model))
 }
@@ -856,11 +858,7 @@ fn run_whisper(bin: &std::path::Path, model: &std::path::Path, audio: &[u8], ext
     Ok(text)
 }
 
-async fn gemini_transcribe(cfg: &ProviderCfg, mime: &str, data_b64: &str, prompt: &str) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(180))
-        .build()
-        .map_err(|e| format!("failed to build HTTP client: {}", e))?;
+async fn gemini_transcribe(client: &reqwest::Client, cfg: &ProviderCfg, mime: &str, data_b64: &str, prompt: &str) -> Result<String, String> {
     let base = cfg.base_url.trim_end_matches('/');
     let body = json!({
         "contents": [{"parts": [
@@ -871,6 +869,7 @@ async fn gemini_transcribe(cfg: &ProviderCfg, mime: &str, data_b64: &str, prompt
     let url = format!("{}/models/{}:generateContent?key={}", base, cfg.model, cfg.api_key);
     let resp = client
         .post(url)
+        .timeout(std::time::Duration::from_secs(180))
         .header("User-Agent", "Aura-Pulse/0.3.0")
         .json(&body)
         .send()
@@ -972,7 +971,7 @@ pub async fn ai_transcribe(
     } else {
         "Transcribe this audio verbatim. If there is no speech, describe the audio instead (music, sounds, ambience). Output only the transcript or description."
     };
-    let text = gemini_transcribe(&gcfg, mime, &data_b64, prompt).await?;
+    let text = gemini_transcribe(&ai.client, &gcfg, mime, &data_b64, prompt).await?;
     let conn = vault.0.lock().map_err(|e| e.to_string())?;
     save_ai_result(&conn, clip_id, if describe { "description" } else { "ocr" }, &text)?;
     Ok(text)
@@ -1008,6 +1007,7 @@ pub async fn ai_chat(
     }
 
     call_provider_with_retry(
+        &ai.client,
         &cfg,
         "You are Aura, a sharp assistant embedded in a system-monitor/clipboard app. Be concise and useful.",
         &user,

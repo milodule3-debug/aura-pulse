@@ -50,6 +50,16 @@ pub fn open_db() -> Connection {
         CREATE INDEX IF NOT EXISTS idx_clips_hash ON clips(hash);",
     )
     .expect("create schema");
+    // Migration v1: deduplicate rows with duplicate hashes, then add UNIQUE
+    // constraint to prevent races between the watcher connection and
+    // command handler connections.
+    conn.execute_batch(
+        "DELETE FROM clips WHERE id NOT IN (
+            SELECT MIN(id) FROM clips GROUP BY hash
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_clips_hash_unique ON clips(hash);",
+    )
+    .ok(); // non-fatal — if migration was already applied the index exists
     conn
 }
 
@@ -166,21 +176,16 @@ fn insert_clip(conn: &Connection, data: ClipData, app: &AppHandle) -> Option<i64
         }
     };
 
-    // Re-copy of known content bumps it to the top instead of duplicating.
-    let existing: Option<i64> = conn
-        .query_row("SELECT id FROM clips WHERE hash = ?1 LIMIT 1", params![hash], |r| r.get(0))
-        .ok();
-    if let Some(id) = existing {
-        conn.execute("UPDATE clips SET created_at = ?1 WHERE id = ?2", params![now_ms(), id])
-            .ok();
-        let _ = app.emit("vault_changed", id);
-        return Some(id);
-    }
-
+    // UPSERT: atomically insert or bump timestamp. With the UNIQUE(hash)
+    // constraint this is race-safe even across SQLite connections (watcher
+    // thread vs command handler). The existing SELECT-then-branch pattern
+    // had a TOCTOU gap between two connections.
+    let now = now_ms();
     conn.execute(
         "INSERT INTO clips (kind, content, payload, thumb, width, height, hash, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![kind, content, payload, thumb, w, h, hash, now_ms()],
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT(hash) DO UPDATE SET created_at = excluded.created_at",
+        params![kind, content, payload, thumb, w, h, hash, now],
     )
     .ok();
     let id = conn.last_insert_rowid();
@@ -503,12 +508,17 @@ pub fn vault_add_audio(state: tauri::State<'_, VaultState>, app: AppHandle, data
 pub fn vault_add_path(state: tauri::State<'_, VaultState>, app: AppHandle, path: String, kind: String) -> Result<i64, String> {
     const IMAGE_EXT: [&str; 7] = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff"];
     const AUDIO_EXT: [&str; 8] = ["mp3", "wav", "ogg", "flac", "m4a", "opus", "aac", "wma"];
+    const MAX_BYTES: u64 = 100 * 1024 * 1024; // 100 MB
     let p = std::path::Path::new(&path);
     let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
     match kind.as_str() {
         "image" => {
             if !IMAGE_EXT.contains(&ext.as_str()) {
                 return Err("Not an image file".into());
+            }
+            let meta = std::fs::metadata(p).map_err(|e| format!("failed to stat {}: {}", path, e))?;
+            if meta.len() > MAX_BYTES {
+                return Err(format!("file too large ({:.1} MB, max 100 MB)", meta.len() as f64 / 1e6));
             }
             let bytes = std::fs::read(p).map_err(|e| format!("failed to read {}: {}", path, e))?;
             let conn = state.0.lock().map_err(|e| e.to_string())?;
@@ -517,6 +527,10 @@ pub fn vault_add_path(state: tauri::State<'_, VaultState>, app: AppHandle, path:
         "audio" => {
             if !AUDIO_EXT.contains(&ext.as_str()) {
                 return Err("Not an audio file".into());
+            }
+            let meta = std::fs::metadata(p).map_err(|e| format!("failed to stat {}: {}", path, e))?;
+            if meta.len() > MAX_BYTES {
+                return Err(format!("file too large ({:.1} MB, max 100 MB)", meta.len() as f64 / 1e6));
             }
             let bytes = std::fs::read(p).map_err(|e| format!("failed to read {}: {}", path, e))?;
             let name = p.file_name().and_then(|n| n.to_str()).unwrap_or(path.as_str()).to_string();
@@ -568,4 +582,73 @@ pub fn save_ai_result(conn: &Connection, id: i64, field: &str, value: &str) -> R
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn safe_filename(text: &str) -> String {
+    text.lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
+        .take(30)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+#[tauri::command]
+pub fn vault_save_as(state: tauri::State<'_, VaultState>, id: i64) -> Result<String, String> {
+    // Fetch clip data first, then drop the lock before opening the file dialog
+    let (kind, content, payload) = {
+        let conn = state.0.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT kind, content, payload FROM clips WHERE id = ?1",
+            params![id],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, Option<Vec<u8>>>(2)?)),
+        )
+        .map_err(|e| e.to_string())?
+    };
+
+    let default_name = match kind.as_str() {
+        "image" => format!("vault_clip_{}.png", id),
+        "audio" => format!("vault_clip_{}.mp3", id),
+        "json" | "csv" => {
+            let stem = content.as_deref().map(safe_filename).filter(|s| !s.is_empty());
+            format!("{}.{}", stem.unwrap_or_else(|| format!("vault_clip_{}", id)), kind)
+        }
+        _ => {
+            let stem = content.as_deref().map(safe_filename).filter(|s| !s.is_empty());
+            format!("{}.txt", stem.unwrap_or_else(|| format!("vault_clip_{}", id)))
+        }
+    };
+
+    let ext = match kind.as_str() {
+        "image" => "png",
+        "audio" => "mp3",
+        "json" | "csv" => kind.as_str(),
+        _ => "txt",
+    };
+
+    let dialog = rfd::FileDialog::new()
+        .set_file_name(&default_name)
+        .add_filter("Save as", &[ext]);
+
+    let path = dialog.save_file().ok_or("cancelled")?;
+
+    match kind.as_str() {
+        "image" | "audio" => {
+            let bytes = payload.ok_or(format!("no payload for {} clip", kind))?;
+            std::fs::write(&path, bytes).map_err(|e| format!("write failed: {}", e))?;
+        }
+        _ => {
+            let text = content.as_deref().unwrap_or("");
+            let output = match kind.as_str() {
+                "color" => format!("Color: {}\nHEX: {}", text, text),
+                _ => text.to_string(),
+            };
+            std::fs::write(&path, output).map_err(|e| format!("write failed: {}", e))?;
+        }
+    }
+
+    Ok(path.to_string_lossy().to_string())
 }

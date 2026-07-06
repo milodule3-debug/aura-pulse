@@ -2,6 +2,7 @@
 //! Linux reads /proc and /sys directly (no shelling out in the hot path);
 //! Windows samples through the `sysinfo` crate (less depth: no RAPL watts,
 //! no GPU sysfs, no per-disk IO rates — those fields degrade to zero).
+//! macOS samples through the `sysinfo` crate plus sysctl for freq/temp.
 
 use serde::Serialize;
 use std::sync::Mutex;
@@ -125,7 +126,7 @@ pub fn spawn(app: AppHandle) {
 
 // ---------- Linux backend: raw /proc + /sys ----------
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 mod imp {
     use super::*;
     use std::collections::HashMap;
@@ -566,7 +567,7 @@ mod imp {
             let (batt_pct, batt_watts, on_ac) = read_battery();
 
             // Slow lane: every 2 s refresh top procs + power profile
-            if tick % 20 == 0 {
+            if tick.is_multiple_of(20) {
                 cached_top = tracker.sample();
                 cached_profile = Command::new("powerprofilesctl")
                     .arg("get")
@@ -620,6 +621,171 @@ mod imp {
     }
 }
 
+// ---------- macOS backend: sysinfo crate + sysctl ----------
+
+#[cfg(target_os = "macos")]
+mod macos_imp {
+    use super::*;
+    use sysinfo::{Components, Disks, Networks, ProcessesToUpdate, System};
+
+    fn sysctl_f64(name: &str) -> Option<f64> {
+        let out = std::process::Command::new("sysctl").arg("-n").arg(name).output().ok()?;
+        String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+    }
+
+    pub fn run(app: AppHandle) {
+        let mut sys = System::new_all();
+        let mut disks = Disks::new_with_refreshed_list();
+        let mut networks = Networks::new_with_refreshed_list();
+        let mut components = Components::new_with_refreshed_list();
+
+        let mut cached_top: Vec<TopProc> = Vec::new();
+        let mut cached_mounts: Vec<MountInfo> = Vec::new();
+        let mut cached_procs: u32 = 0;
+        let mut cpu_temp: f32 = 0.0;
+        let mut prev_net_t = Instant::now();
+        let mut tick: u64 = 0;
+
+        loop {
+            let loop_start = Instant::now();
+
+            sys.refresh_cpu_usage();
+            sys.refresh_memory();
+
+            let dt = prev_net_t.elapsed().as_secs_f64().max(0.01);
+            networks.refresh(true);
+            prev_net_t = Instant::now();
+            let (mut rx, mut tx) = (0u64, 0u64);
+            for (_name, data) in networks.iter() {
+                rx += data.received();
+                tx += data.transmitted();
+            }
+
+            // Slow lane: every 2 s refresh processes, disks, temps, battery
+            if tick.is_multiple_of(20) {
+                sys.refresh_processes(ProcessesToUpdate::All, true);
+                cached_procs = sys.processes().len() as u32;
+                let mut top: Vec<TopProc> = sys
+                    .processes()
+                    .values()
+                    .filter(|p| p.cpu_usage() >= 0.1)
+                    .map(|p| TopProc {
+                        pid: p.pid().as_u32() as i32,
+                        name: p.name().to_string_lossy().into_owned(),
+                        cpu: p.cpu_usage(),
+                        mem: p.memory(),
+                    })
+                    .collect();
+                top.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
+                top.truncate(8);
+                cached_top = top;
+
+                disks.refresh(true);
+                cached_mounts = disks
+                    .iter()
+                    .take(4)
+                    .map(|d| {
+                        let total = d.total_space();
+                        MountInfo {
+                            path: d.mount_point().to_string_lossy().into_owned(),
+                            total,
+                            used: total.saturating_sub(d.available_space()),
+                        }
+                    })
+                    .collect();
+
+                components.refresh(true);
+                cpu_temp = components
+                    .iter()
+                    .find(|c| {
+                        let l = c.label().to_lowercase();
+                        l.contains("cpu") || l.contains("package") || l.contains("die")
+                    })
+                    .and_then(|c| c.temperature())
+                    .unwrap_or(0.0);
+            }
+
+            // CPU frequency via sysctl (macOS hw.cpufrequency is in Hz)
+            let freq_mhz = sysctl_f64("hw.cpufrequency")
+                .map(|hz| hz / 1e6)
+                .unwrap_or_else(|| {
+                    let cpus = sys.cpus();
+                    if cpus.is_empty() { 0.0 }
+                    else { cpus.iter().map(|c| c.frequency() as f64).sum::<f64>() / cpus.len() as f64 }
+                }) as f32;
+
+            let load = System::load_average();
+
+            // Battery via pmset
+            let (batt_pct, batt_watts, on_ac) = read_macos_battery();
+
+            let snap = Snapshot {
+                ts: now_ms(),
+                cpu: Cpu {
+                    total: sys.global_cpu_usage(),
+                    cores: sys.cpus().iter().map(|c| c.cpu_usage()).collect(),
+                    freq_mhz,
+                    temp: cpu_temp,
+                },
+                mem: Mem {
+                    total: sys.total_memory(),
+                    used: sys.total_memory().saturating_sub(sys.available_memory()),
+                    avail: sys.available_memory(),
+                    swap_total: sys.total_swap(),
+                    swap_used: sys.used_swap(),
+                },
+                gpu: Gpu::default(),
+                power: Power {
+                    cpu_watts: 0.0,
+                    batt_watts,
+                    batt_pct,
+                    on_ac,
+                    profile: String::new(),
+                },
+                disk: DiskIo {
+                    mounts: cached_mounts.clone(),
+                    read_bps: 0.0,
+                    write_bps: 0.0,
+                },
+                net: Net {
+                    rx_bps: rx as f64 / dt,
+                    tx_bps: tx as f64 / dt,
+                },
+                sys: SysMeta {
+                    load1: load.one as f32,
+                    load5: load.five as f32,
+                    uptime: System::uptime(),
+                    procs: cached_procs,
+                },
+                top: cached_top.clone(),
+            };
+
+            publish(&app, snap);
+
+            tick += 1;
+            let elapsed = loop_start.elapsed();
+            if elapsed < Duration::from_millis(100) {
+                std::thread::sleep(Duration::from_millis(100) - elapsed);
+            }
+        }
+    }
+
+    fn read_macos_battery() -> (f32, f32, bool) {
+        let out = std::process::Command::new("pmset").arg("-g").arg("batt").output();
+        let text = match out {
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).to_string(),
+            _ => return (100.0, 0.0, true),
+        };
+        let on_ac = text.contains("AC attached") || text.contains("charging");
+        let pct = text
+            .find('%')
+            .and_then(|i| text[..i].rfind(|c: char| !c.is_ascii_digit()).map(|j| &text[j + 1..i + 1]))
+            .and_then(|s| s.trim_end_matches('%').parse::<f32>().ok())
+            .unwrap_or(100.0);
+        (pct, 0.0, on_ac)
+    }
+}
+
 // ---------- Windows backend: sysinfo crate ----------
 
 #[cfg(windows)]
@@ -656,7 +822,7 @@ mod imp {
             }
 
             // Slow lane: every 2 s refresh processes, disks and temps
-            if tick % 20 == 0 {
+    if tick.is_multiple_of(20) {
                 sys.refresh_processes(ProcessesToUpdate::All, true);
                 cached_procs = sys.processes().len() as u32;
                 let mut top: Vec<TopProc> = sys

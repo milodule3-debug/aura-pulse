@@ -121,6 +121,7 @@ async function mockInvoke(cmd: string, args: any): Promise<any> {
     case "vault_pin": { const c = mockClips.find((c) => c.id === args.id); if (c) c.pinned = args.pinned; return null; }
     case "vault_wipe": mockClips = []; return null;
     case "vault_copy": return null;
+    case "vault_save_as": return "/tmp/vault_clip_" + args.id + ".txt";
     case "vault_add_text": {
       mockClips.unshift({ id: Date.now(), kind: "text", content: args.content, thumb: null, image: null, width: 0, height: 0, pinned: false, created_at: Date.now(), title: null, summary: null, tags: null, has_ai: false, ocr: null, description: null, markdown: null, design_json: null });
       return null;

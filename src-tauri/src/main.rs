@@ -18,7 +18,13 @@ fn main() {
     tauri::Builder::default()
         .manage(telemetry::TelemetryState(Mutex::new(Default::default())))
         .manage(vault::VaultState(Mutex::new(vault::open_db())))
-        .manage(ai::AiState(Mutex::new(ai::load_config())))
+        .manage(ai::AiState {
+            config: Mutex::new(ai::load_config()),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(180))
+                .build()
+                .expect("build reqwest client"),
+        })
         .setup(|app| {
             telemetry::spawn(app.handle().clone());
             vault::spawn_watcher(app.handle().clone());
@@ -37,6 +43,7 @@ fn main() {
             vault::vault_add_image,
             vault::vault_add_path,
             vault::vault_add_audio,
+            vault::vault_save_as,
             vault::vault_stats,
             ai::ai_get_config,
             ai::ai_set_config,

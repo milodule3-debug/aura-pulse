@@ -1,0 +1,132 @@
+name: Build Tauri App
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf libssl-dev libglib2.0-dev libcairo2-dev \
+            libpango1.0-dev libgdk-pixbuf-2.0-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install frontend deps
+        working-directory: Aura Pulse/app
+        run: npm install
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "Aura Pulse/app/src-tauri"
+
+      - name: Build
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: "Aura Pulse/app"
+          tagName: ${{ github.ref_name }}
+          releaseName: "Aura Pulse ${{ github.ref_name }}"
+          releaseBody: |
+            ## Aura Pulse ${{ github.ref_name }}
+            Download the installer for your platform below.
+          releaseDraft: true
+          prerelease: false
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install frontend deps
+        working-directory: Aura Pulse/app
+        run: npm install
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "Aura Pulse/app/src-tauri"
+
+      - name: Build
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: "Aura Pulse/app"
+          tagName: ${{ github.ref_name }}
+          releaseName: "Aura Pulse ${{ github.ref_name }}"
+          releaseBody: |
+            ## Aura Pulse ${{ github.ref_name }}
+            Download the installer for your platform below.
+          releaseDraft: true
+          prerelease: false
+
+  # Upload .dmg as artifact even without a tag (for testing)
+  build-macos-artifact:
+    runs-on: macos-latest
+    if: github.ref_type != 'tag'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install frontend deps
+        working-directory: Aura Pulse/app
+        run: npm install
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "Aura Pulse/app/src-tauri"
+
+      - name: Build macOS
+        working-directory: Aura Pulse/app
+        run: npx tauri build --target universal-apple-darwin
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aura-pulse-macos
+          path: |
+            Aura Pulse/app/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            Aura Pulse/app/src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
+          retention-days: 14

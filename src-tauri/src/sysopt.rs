@@ -1,10 +1,9 @@
 //! System optimization: power profiles (via power-profiles-daemon,
 //! no root needed), CPU boost, swappiness and cache dropping
 //! (privileged writes go through pkexec → system auth dialog).
+//! macOS: these features are not applicable; commands return errors.
 
 use serde::Serialize;
-use std::fs;
-use std::process::Command;
 
 #[derive(Serialize)]
 pub struct SysoptInfo {
@@ -17,6 +16,14 @@ pub struct SysoptInfo {
     pub has_ppd: bool,
 }
 
+// ---------- Linux implementation ----------
+
+#[cfg(target_os = "linux")]
+use std::fs;
+#[cfg(target_os = "linux")]
+use std::process::Command;
+
+#[cfg(target_os = "linux")]
 fn boost_paths() -> Vec<String> {
     let global = "/sys/devices/system/cpu/cpufreq/boost";
     if std::path::Path::new(global).exists() {
@@ -34,10 +41,12 @@ fn boost_paths() -> Vec<String> {
     v
 }
 
+#[cfg(target_os = "linux")]
 fn read_trim(path: &str) -> Option<String> {
     fs::read_to_string(path).ok().map(|s| s.trim().to_string())
 }
 
+#[cfg(target_os = "linux")]
 #[tauri::command]
 pub fn sysopt_get() -> SysoptInfo {
     let ppd = Command::new("powerprofilesctl").arg("get").output();
@@ -86,6 +95,7 @@ pub fn sysopt_get() -> SysoptInfo {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[tauri::command]
 pub async fn sysopt_set_profile(profile: String) -> Result<(), String> {
     let allowed = ["performance", "balanced", "power-saver"];
@@ -105,6 +115,7 @@ pub async fn sysopt_set_profile(profile: String) -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn pkexec_write(pairs: Vec<(String, String)>) -> Result<(), String> {
     // one pkexec invocation for all writes → single auth dialog
     let script = pairs
@@ -126,6 +137,7 @@ fn pkexec_write(pairs: Vec<(String, String)>) -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[tauri::command]
 pub async fn sysopt_set_boost(on: bool) -> Result<(), String> {
     let paths = boost_paths();
@@ -139,6 +151,7 @@ pub async fn sysopt_set_boost(on: bool) -> Result<(), String> {
         .map_err(|e| e.to_string())?
 }
 
+#[cfg(target_os = "linux")]
 #[tauri::command]
 pub async fn sysopt_set_swappiness(value: u32) -> Result<(), String> {
     if value > 200 {
@@ -154,6 +167,7 @@ pub async fn sysopt_set_swappiness(value: u32) -> Result<(), String> {
 /// Balance load across all CPU cores: online any offlined cores, apply one
 /// governor uniformly, enable scheduler autogroup, spread IRQs when
 /// irqbalance is available. One pkexec script → single auth dialog.
+#[cfg(target_os = "linux")]
 #[tauri::command]
 pub async fn sysopt_balance_cores() -> Result<String, String> {
     const SCRIPT: &str = r#"
@@ -194,6 +208,7 @@ echo "cores onlined: $onlined | governor: $gov (all cores) | autogroup: $autogro
     .map_err(|e| e.to_string())?
 }
 
+#[cfg(target_os = "linux")]
 #[tauri::command]
 pub async fn sysopt_drop_caches() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(|| {
@@ -209,4 +224,50 @@ pub async fn sysopt_drop_caches() -> Result<(), String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+// ---------- macOS stubs (not applicable) ----------
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn sysopt_get() -> SysoptInfo {
+    SysoptInfo {
+        profile: String::new(),
+        profiles: Vec::new(),
+        governor: String::new(),
+        epp: None,
+        boost: None,
+        swappiness: 0,
+        has_ppd: false,
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn sysopt_set_profile(_profile: String) -> Result<(), String> {
+    Err("power profiles not available on macOS — use System Settings → Battery".into())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn sysopt_set_boost(_on: bool) -> Result<(), String> {
+    Err("CPU boost control not available on macOS".into())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn sysopt_set_swappiness(_value: u32) -> Result<(), String> {
+    Err("swappiness control not available on macOS".into())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn sysopt_balance_cores() -> Result<String, String> {
+    Err("core balancing not available on macOS — the kernel handles this automatically".into())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn sysopt_drop_caches() -> Result<(), String> {
+    Err("cache dropping not available on macOS".into())
 }

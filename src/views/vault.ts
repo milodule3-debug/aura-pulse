@@ -350,6 +350,22 @@ export class VaultView implements View {
         },
         icon("trash"),
       ),
+      h(
+        "button",
+        {
+          title: "Save as file",
+          onclick: async (e: Event) => {
+            e.stopPropagation();
+            try {
+              const path = await call<string>("vault_save_as", { id: c.id });
+              if (path) toast(`Saved: ${path}`);
+            } catch (err) {
+              if (!String(err).includes("cancelled")) toast(String(err), true);
+            }
+          },
+        },
+        icon("download"),
+      ),
     );
 
     let preview: HTMLElement;
@@ -505,6 +521,7 @@ export class VaultView implements View {
           "button",
           {
             class: "icon-btn",
+            title: "Copy to clipboard",
             onclick: async () => {
               await call("vault_copy", { id });
               toast("Copied");
@@ -512,12 +529,33 @@ export class VaultView implements View {
           },
           icon("copy"),
         ),
+        h(
+          "button",
+          {
+            class: "icon-btn",
+            title: "Save as file",
+            onclick: async () => {
+              try {
+                const path = await call<string>("vault_save_as", { id });
+                if (path) toast(`Saved: ${path}`);
+              } catch (e) {
+                if (!String(e).includes("cancelled")) toast(String(e), true);
+              }
+            },
+          },
+          icon("download"),
+        ),
         h("button", { class: "icon-btn", onclick: () => this.closeDrawer() }, icon("x")),
       ),
       h("div", { class: "drawer-body" }, content, aiBtns, results, askOut),
       h("div", { class: "ask-row" }, askInput, h("button", { class: "btn", onclick: ask }, icon("send"), "Ask")),
     );
     document.body.append(this.drawer);
+
+    // ensure ask input is usable after drawer opens
+    const body = this.drawer.querySelector(".drawer-body") as HTMLElement;
+    if (body) body.scrollTop = body.scrollHeight;
+    askInput.focus();
   }
 
   private closeDrawer() {

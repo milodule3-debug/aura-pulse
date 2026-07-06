@@ -120,7 +120,7 @@ fn bench_disk(app: &AppHandle) -> Result<Value, String> {
 
     const BLOCK: usize = 8 * 1024 * 1024;
     const BLOCKS: usize = 24; // 192 MB
-    let block: Vec<u8> = (0..BLOCK).map(|i| (i * 2654435761 >> 16) as u8).collect();
+    let block: Vec<u8> = (0..BLOCK).map(|i| ((i * 2654435761) >> 16) as u8).collect();
 
     progress(app, "disk", 10.0, "sequential write 192 MB");
     let t0 = Instant::now();

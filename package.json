@@ -1,7 +1,7 @@
 {
   "name": "aura-pulse",
   "version": "0.3.0",
-  "description": "System telemetry, AI clipboard vault & hardware benchmarks in a Tron-grade cockpit — native Linux app (Tauri 2 + Rust). npm package ships a prebuilt Linux x64 binary.",
+  "description": "System telemetry, AI clipboard vault & hardware benchmarks in a Tron-grade cockpit — Tauri 2 + Rust native app for Linux and macOS.",
   "license": "MIT",
   "author": "Dusan Milosavljevic <leanproiq@gmail.com>",
   "repository": {

@@ -116,7 +116,7 @@ export class App {
     // sysfs, power-profiles-daemon have no Windows counterparts yet).
     call<string>("app_os")
       .then((os) => {
-        if (os === "windows") {
+        if (os === "windows" || os === "macos") {
           this.tabsEl.get("optimize")?.remove();
           this.tabsEl.delete("optimize");
           delete this.views["optimize"];

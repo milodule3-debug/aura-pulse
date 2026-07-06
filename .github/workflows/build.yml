@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: repo
 
       - name: Install system dependencies
         run: |
@@ -29,7 +31,7 @@ jobs:
           node-version: 22
 
       - name: Install frontend deps
-        working-directory: Aura Pulse/app
+        working-directory: repo/app
         run: npm install
 
       - name: Setup Rust
@@ -38,14 +40,14 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "Aura Pulse/app/src-tauri"
+          workspaces: repo/app/src-tauri
 
       - name: Build
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          projectPath: "Aura Pulse/app"
+          projectPath: repo/app
           tagName: ${{ github.ref_name }}
           releaseName: "Aura Pulse ${{ github.ref_name }}"
           releaseBody: |
@@ -58,6 +60,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: repo
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -65,7 +69,7 @@ jobs:
           node-version: 22
 
       - name: Install frontend deps
-        working-directory: Aura Pulse/app
+        working-directory: repo/app
         run: npm install
 
       - name: Setup Rust
@@ -76,14 +80,14 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "Aura Pulse/app/src-tauri"
+          workspaces: repo/app/src-tauri
 
       - name: Build
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          projectPath: "Aura Pulse/app"
+          projectPath: repo/app
           tagName: ${{ github.ref_name }}
           releaseName: "Aura Pulse ${{ github.ref_name }}"
           releaseBody: |
@@ -98,6 +102,8 @@ jobs:
     if: github.ref_type != 'tag'
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: repo
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -105,7 +111,7 @@ jobs:
           node-version: 22
 
       - name: Install frontend deps
-        working-directory: Aura Pulse/app
+        working-directory: repo/app
         run: npm install
 
       - name: Setup Rust
@@ -116,10 +122,10 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "Aura Pulse/app/src-tauri"
+          workspaces: repo/app/src-tauri
 
       - name: Build macOS
-        working-directory: Aura Pulse/app
+        working-directory: repo/app
         run: npx tauri build --target universal-apple-darwin
 
       - name: Upload macOS artifact
@@ -127,6 +133,6 @@ jobs:
         with:
           name: aura-pulse-macos
           path: |
-            Aura Pulse/app/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
-            Aura Pulse/app/src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
+            repo/app/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            repo/app/src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
           retention-days: 14

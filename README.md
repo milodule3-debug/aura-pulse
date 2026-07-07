@@ -34,6 +34,10 @@ aura-pulse
 
 Runtime deps: `libwebkit2gtk-4.1-0` and GTK 3 (preinstalled on most desktop distros). For start-menu integration and dependency handling, prefer the `.deb` below.
 
+**macOS / Windows**: prebuilt installers (`.dmg` for Apple Silicon, `.exe`/`.msi` for
+Windows) are published on the [Releases page](https://github.com/milodule3-debug/aura-pulse/releases).
+See [docs/WINDOWS.md](docs/WINDOWS.md) for Windows-specific build/install notes.
+
 ## Build & run
 
 Requirements: Node ≥ 18, Rust stable, and the [Tauri 2 Linux prerequisites](https://tauri.app/start/prerequisites/) (webkit2gtk 4.1 et al.).
@@ -58,4 +62,4 @@ Optional runtime helpers: `power-profiles-daemon` (power profiles), `wl-clipboar
 - The frontend runs in a plain browser too (`npm run dev`) with a full mock backend — handy for UI work without Rust.
 - Dev-only integration selftest: create `public/selftest.flag` and run `npm run tauri dev`; results render on-screen inside the real app.
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the original feature spec.
+See [CHANGELOG.md](CHANGELOG.md) for release history and [docs/ROADMAP.md](docs/ROADMAP.md) for the original feature spec.

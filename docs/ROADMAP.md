@@ -1,5 +1,9 @@
 # Project "Aura Pulse" (System & Clipboard Manager) - Development Roadmap
 
+> **Note:** This is the original historical build brief, not a live task
+> list — it does not reflect current status. See [CHANGELOG.md](../CHANGELOG.md)
+> for what has actually shipped.
+
 This document outlines the required features, enhancements, and architectural requirements for the "Aura Pulse" application. The project is an existing application that requires significant **additions** and **fixes** to reach its full potential as an integrated system monitor, AI-enhanced clipboard manager, and terminal workspace.
 
 ---

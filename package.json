@@ -1,6 +1,6 @@
 {
   "name": "aura-pulse",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "description": "System telemetry, AI clipboard vault & hardware benchmarks in a Tron-grade cockpit — Tauri 2 + Rust native app for Linux and macOS.",
   "license": "MIT",
   "author": "Dusan Milosavljevic <leanproiq@gmail.com>",

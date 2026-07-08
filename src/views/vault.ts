@@ -501,7 +501,9 @@ export class VaultView implements View {
         (askOut.lastElementChild as HTMLElement).textContent = String(e);
       }
     };
-    askInput.onkeydown = (e) => e.key === "Enter" && ask();
+    askInput.onkeydown = (e) => {
+      if (e.key === "Enter") ask();
+    };
 
     const content =
       clip.kind === "image" && clip.image
@@ -552,7 +554,6 @@ export class VaultView implements View {
     );
     document.body.append(this.drawer);
 
-    // ensure ask input is usable after drawer opens
     const body = this.drawer.querySelector(".drawer-body") as HTMLElement;
     if (body) body.scrollTop = body.scrollHeight;
     askInput.focus();

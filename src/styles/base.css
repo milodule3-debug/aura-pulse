@@ -13,7 +13,41 @@ body {
   font-family: var(--font-ui);
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Disable text selection on chrome elements only — applying user-select:none
+   to body/html breaks keyboard input in WebKit2GTK (Tauri on Linux). */
+.topbar,
+.sidebar,
+.tabs,
+.tab,
+.btn,
+.chip,
+.switch,
+.icon-btn,
+.panel-head,
+.view-header,
+.readout,
+.kind-badge,
+.clip-head,
+.kv,
+.side-title,
+.settings-section-title,
+.sphere-caption,
+.core-cell span,
+.drawer-head,
+.seg {
+  -webkit-user-select: none;
   user-select: none;
+}
+
+/* Ensure inputs/textareas always accept typing */
+input,
+textarea,
+select,
+[contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 ::selection {
@@ -35,6 +69,16 @@ body {
   background: rgba(0, 229, 255, 0.35);
 }
 
+body.theme-dracula ::-webkit-scrollbar-thumb {
+  background: rgba(139, 233, 253, 0.16);
+}
+body.theme-dracula ::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 233, 253, 0.3);
+}
+body.theme-dracula ::selection {
+  background: rgba(189, 147, 249, 0.35);
+}
+
 #app {
   height: 100vh;
   display: flex;
@@ -43,6 +87,19 @@ body {
   background:
     radial-gradient(1200px 700px at 75% -10%, rgba(0, 229, 255, 0.06), transparent 60%),
     radial-gradient(900px 600px at -5% 110%, rgba(157, 107, 255, 0.05), transparent 60%),
+    var(--bg-0);
+}
+
+body.theme-wireframe #app {
+  background:
+    radial-gradient(1200px 700px at 75% -10%, rgba(77, 217, 240, 0.04), transparent 60%),
+    radial-gradient(900px 600px at -5% 110%, rgba(138, 92, 245, 0.03), transparent 60%),
+    var(--bg-0);
+}
+body.theme-dracula #app {
+  background:
+    radial-gradient(1200px 700px at 75% -10%, rgba(139, 233, 253, 0.04), transparent 60%),
+    radial-gradient(900px 600px at -5% 110%, rgba(189, 147, 249, 0.04), transparent 60%),
     var(--bg-0);
 }
 
@@ -58,6 +115,12 @@ body {
     linear-gradient(90deg, rgba(0, 229, 255, 0.025) 1px, transparent 1px);
   background-size: 42px 42px;
   mask-image: radial-gradient(ellipse at 50% 40%, black 30%, transparent 90%);
+}
+
+body.theme-dracula #app::before {
+  background-image:
+    linear-gradient(rgba(98, 114, 164, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(98, 114, 164, 0.04) 1px, transparent 1px);
 }
 #app::after {
   content: "";

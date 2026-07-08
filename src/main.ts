@@ -13,6 +13,12 @@ import "./styles/views.css";
 import { App } from "./app";
 import { maybeRunSelftest } from "./selftest";
 
+// Restore saved theme before first paint to prevent flash.
+const savedTheme = localStorage.getItem("ap-theme");
+if (savedTheme && savedTheme !== "neon") {
+  document.body.className = `theme-${savedTheme}`;
+}
+
 // The window is created with dragDropEnabled: false (native interception
 // breaks HTML5 drops on webkit2gtk), so block the webview's default
 // behavior of navigating to files dropped outside a drop zone.

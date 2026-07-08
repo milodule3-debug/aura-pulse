@@ -86,10 +86,14 @@ export class GlobalSphere {
     const cpu = latest.snap?.cpu.total ?? 12;
     const load = Math.min(1, cpu / 100);
 
+    const isDrac = document.body.classList.contains("theme-dracula");
+    const isWire = document.body.classList.contains("theme-wireframe");
+
     // rotation speed + breathing react to CPU load
     this.rotY += 0.0035 + load * 0.014;
     const breathe = 0.55 + 0.45 * Math.sin(t * (0.7 + load * 2.2));
-    const hue = 188 - load * 30; // cyan → teal-green shifts slightly, magenta pings pop
+    const hue = isDrac ? 190 - load * 15 : 188 - load * 30; // theme-adapted hue
+    const satHue = isDrac ? 326 : 330; // satellite hue
 
     const cx = size / 2;
     const cy = size / 2;
@@ -123,8 +127,10 @@ export class GlobalSphere {
     for (const q of projected) {
       const depth = (q.z + 1) / 2; // 0 far → 1 near... z positive = away; invert
       const near = 1 - depth;
-      const alpha = 0.12 + near * (0.5 + breathe * 0.35);
-      const rad = 0.7 + near * 1.5;
+      const alphaBase = isWire ? 0.08 : 0.12;
+      const alphaRange = isWire ? 0.3 : 0.5;
+      const alpha = alphaBase + near * (alphaRange + breathe * 0.35);
+      const rad = isWire ? 0.5 + near * 1.0 : 0.7 + near * 1.5;
       ctx.beginPath();
       ctx.arc(q.sx, q.sy, rad, 0, Math.PI * 2);
       ctx.fillStyle = `hsla(${hue},100%,${58 + near * 18}%,${alpha})`;
@@ -185,7 +191,7 @@ export class GlobalSphere {
         ctx.beginPath();
         ctx.moveTo(q.sx, q.sy);
         ctx.lineTo(n.sx, n.sy);
-        ctx.strokeStyle = `hsla(330,100%,62%,${0.3 * breathe})`;
+        ctx.strokeStyle = `hsla(${satHue},100%,62%,${0.3 * breathe})`;
         ctx.lineWidth = 0.8;
         ctx.stroke();
       }
@@ -193,17 +199,17 @@ export class GlobalSphere {
       // satellite body + ping ripple (halo drawn cheaply, no shadowBlur)
       ctx.beginPath();
       ctx.arc(q.sx, q.sy, 5 * q.s, 0, Math.PI * 2);
-      ctx.fillStyle = "hsla(330,100%,65%,0.25)";
+      ctx.fillStyle = `hsla(${satHue},100%,65%,0.25)`;
       ctx.fill();
       ctx.beginPath();
       ctx.arc(q.sx, q.sy, 2.4 * q.s, 0, Math.PI * 2);
-      ctx.fillStyle = "hsla(330,100%,65%,0.95)";
+      ctx.fillStyle = `hsla(${satHue},100%,65%,0.95)`;
       ctx.fill();
 
       const pa = 1 - s.pingT;
       ctx.beginPath();
       ctx.arc(q.sx, q.sy, 3 + s.pingT * 14, 0, Math.PI * 2);
-      ctx.strokeStyle = `hsla(330,100%,65%,${pa * 0.5})`;
+      ctx.strokeStyle = `hsla(${satHue},100%,65%,${pa * 0.5})`;
       ctx.lineWidth = 1;
       ctx.stroke();
     }
@@ -223,7 +229,7 @@ export class GlobalSphere {
       const pulse = 0.5 + 0.5 * Math.sin(t * 6);
       ctx.beginPath();
       ctx.arc(cx, cy, R * (1.14 + pulse * 0.05), 0, Math.PI * 2);
-      ctx.strokeStyle = `hsla(330,100%,65%,${0.2 + pulse * 0.3})`;
+      ctx.strokeStyle = `hsla(${satHue},100%,65%,${0.2 + pulse * 0.3})`;
       ctx.lineWidth = 1.2;
       ctx.stroke();
     }

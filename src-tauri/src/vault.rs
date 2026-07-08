@@ -218,6 +218,9 @@ fn watch(app: AppHandle) {
     let conn = open_db();
     let mut clipboard = arboard::Clipboard::new().ok();
     let mut last_hash = String::new();
+    let is_wayland = std::env::var("XDG_SESSION_TYPE")
+        .map(|v| v.eq_ignore_ascii_case("wayland"))
+        .unwrap_or(false);
 
     // Seed with newest stored hash so restarting doesn't re-capture.
     if let Ok(h) = conn.query_row(
@@ -231,6 +234,7 @@ fn watch(app: AppHandle) {
     loop {
         let mut captured: Option<(String, ClipData)> = None;
 
+        // Try arboard first (works best on X11, spotty on Wayland when unfocused).
         if let Some(cb) = clipboard.as_mut() {
             if let Ok(t) = cb.get_text() {
                 if !t.trim().is_empty() {
@@ -244,7 +248,6 @@ fn watch(app: AppHandle) {
                 if let Ok(img) = cb.get_image() {
                     let (w, hgt) = (img.width as u32, img.height as u32);
                     if w > 0 && hgt > 0 && img.bytes.len() as u64 <= 64 * 1024 * 1024 {
-                        // hash raw rgba cheaply before the (expensive) png encode
                         let rh = hash_of(&img.bytes);
                         if rh != last_hash {
                             if let Some(png) = encode_png(&img.bytes, w, hgt) {
@@ -254,21 +257,31 @@ fn watch(app: AppHandle) {
                     }
                 }
             }
-        } else {
-            // arboard failed to init (unusual Wayland compositor) — text-only fallback
-            if let Some(t) = wl_paste_text() {
-                let h = hash_of(t.as_bytes());
-                if h != last_hash {
-                    captured = Some((h, ClipData::Text(t)));
+        }
+
+        // arboard's Wayland backend (wl-clipboard-rs) opens a fresh compositor
+        // connection per read, so the wl-paste subprocess fallback is now
+        // redundant on the happy path — running it every tick as well roughly
+        // tripled our Wayland connection churn and was visible as system-wide
+        // compositor stutter. Only fall back to it when arboard isn't even
+        // initialized, and try to bring arboard back on the next cycle.
+        if captured.is_none() && clipboard.is_none() {
+            if is_wayland {
+                if let Some(t) = wl_paste_text() {
+                    let h = hash_of(t.as_bytes());
+                    if h != last_hash {
+                        captured = Some((h, ClipData::Text(t)));
+                    }
                 }
             }
+            clipboard = arboard::Clipboard::new().ok();
         }
 
         if let Some((h, data)) = captured {
             last_hash = h;
             insert_clip(&conn, data, &app);
         }
-        std::thread::sleep(Duration::from_millis(400));
+        std::thread::sleep(Duration::from_millis(if is_wayland { 600 } else { 300 }));
     }
 }
 

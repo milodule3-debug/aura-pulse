@@ -171,7 +171,7 @@ async fn probe_lmstudio() -> Result<Value, String> {
     let models: Value = client
         .get("http://127.0.0.1:1234/v1/models")
         .timeout(Duration::from_secs(5))
-        .header("User-Agent", "Aura-Pulse/0.3.0")
+        .header("User-Agent", "Aura-Pulse/0.4.2")
         .send()
         .await
         .map_err(|e| format!("LM Studio not reachable at http://127.0.0.1:1234 — {}", e))?
@@ -188,7 +188,7 @@ async fn probe_lmstudio() -> Result<Value, String> {
     let t0 = Instant::now();
     let resp: Value = client
         .post("http://127.0.0.1:1234/v1/chat/completions")
-        .header("User-Agent", "Aura-Pulse/0.3.0")
+        .header("User-Agent", "Aura-Pulse/0.4.2")
         .json(&json!({
             "model": model,
             "messages": [{"role": "user", "content": "Write one short sentence about neon cities."}],
@@ -225,7 +225,7 @@ async fn probe_ollama() -> Result<Value, String> {
     let tags: Value = client
         .get("http://127.0.0.1:11434/api/tags")
         .timeout(Duration::from_secs(5))
-        .header("User-Agent", "Aura-Pulse/0.3.0")
+        .header("User-Agent", "Aura-Pulse/0.4.2")
         .send()
         .await
         .map_err(|e| format!("Ollama not reachable at http://127.0.0.1:11434 — {}", e))?
@@ -240,7 +240,7 @@ async fn probe_ollama() -> Result<Value, String> {
 
     let resp: Value = client
         .post("http://127.0.0.1:11434/api/generate")
-        .header("User-Agent", "Aura-Pulse/0.3.0")
+        .header("User-Agent", "Aura-Pulse/0.4.2")
         .json(&json!({
             "model": model,
             "prompt": "Write one short sentence about neon cities.",

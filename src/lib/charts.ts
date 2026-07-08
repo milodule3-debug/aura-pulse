@@ -92,6 +92,8 @@ export class StripChart {
     const { ctx, w, h } = sizeCanvas(this.canvas, this.opts.height);
     ctx.clearRect(0, 0, w, h);
 
+    const isWireframe = document.body.classList.contains("theme-wireframe");
+
     let max: number;
     if (this.opts.max === "auto") {
       max = Math.max(...this.rings.map((r) => r.max())) * 1.15;
@@ -105,7 +107,8 @@ export class StripChart {
     const min = this.opts.min;
 
     // grid
-    ctx.strokeStyle = "rgba(0,229,255,0.07)";
+    const gridAlpha = isWireframe ? 0.04 : 0.07;
+    ctx.strokeStyle = `rgba(0,229,255,${gridAlpha})`;
     ctx.lineWidth = 1;
     for (let g = 1; g < this.opts.gridSteps; g++) {
       const y = (h * g) / this.opts.gridSteps;
@@ -139,7 +142,7 @@ export class StripChart {
         i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       }
 
-      if (spec.fill) {
+      if (spec.fill && !isWireframe) {
         const grad = ctx.createLinearGradient(0, 0, 0, h);
         grad.addColorStop(0, spec.color + "30");
         grad.addColorStop(1, spec.color + "02");
@@ -157,14 +160,33 @@ export class StripChart {
           const y = yOf(ring.at(i));
           i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
         }
+      } else if (spec.fill && isWireframe) {
+        // wireframe: very faint fill with dashed effect
+        const grad = ctx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, spec.color + "12");
+        grad.addColorStop(1, spec.color + "01");
+        ctx.save();
+        ctx.lineTo(x0 + (ring.len - 1) * step, h);
+        ctx.lineTo(x0, h);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+        ctx.restore();
+        ctx.beginPath();
+        for (let i = 0; i < ring.len; i++) {
+          const x = x0 + i * step;
+          const y = yOf(ring.at(i));
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
       }
 
       // cheap two-pass glow (shadowBlur at 10 Hz is too costly in WebKit)
-      ctx.strokeStyle = spec.color + "3a";
-      ctx.lineWidth = (spec.width ?? 1.6) + 3;
+      const glowAlpha = isWireframe ? "22" : "3a";
+      ctx.strokeStyle = spec.color + glowAlpha;
+      ctx.lineWidth = isWireframe ? (spec.width ?? 1.2) + 1.5 : (spec.width ?? 1.6) + 3;
       ctx.stroke();
       ctx.strokeStyle = spec.color;
-      ctx.lineWidth = spec.width ?? 1.6;
+      ctx.lineWidth = isWireframe ? (spec.width ?? 1.0) : (spec.width ?? 1.6);
       ctx.stroke();
 
       // head dot with halo
@@ -258,10 +280,11 @@ export class RingGauge {
     const frac = Math.min(1, Math.max(0, this.shown / this.max));
     const col = this.color(frac);
 
+    const isDrac = document.body.classList.contains("theme-dracula");
     ctx.lineCap = "round";
     ctx.beginPath();
     ctx.arc(cx, cy, r, start, start + span);
-    ctx.strokeStyle = "rgba(0,229,255,0.1)";
+    ctx.strokeStyle = isDrac ? "rgba(98,114,164,0.18)" : "rgba(0,229,255,0.1)";
     ctx.lineWidth = 5;
     ctx.stroke();
 

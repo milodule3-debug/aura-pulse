@@ -159,7 +159,7 @@ async fn call_provider(
             let resp = client
                 .post(format!("{}/v1/messages", base))
                 .timeout(std::time::Duration::from_secs(timeout_secs))
-                .header("User-Agent", "Aura-Pulse/0.3.0")
+                .header("User-Agent", "Aura-Pulse/0.4.2")
                 .header("x-api-key", &cfg.api_key)
                 .header("anthropic-version", "2023-06-01")
                 .json(&body)
@@ -189,7 +189,7 @@ async fn call_provider(
             let resp = client
                 .post(url)
                 .timeout(std::time::Duration::from_secs(timeout_secs))
-                .header("User-Agent", "Aura-Pulse/0.3.0")
+                .header("User-Agent", "Aura-Pulse/0.4.2")
                 .json(&body)
                 .send()
                 .await
@@ -234,7 +234,7 @@ async fn call_provider(
             let mut req = client
                 .post(format!("{}/chat/completions", base))
                 .timeout(std::time::Duration::from_secs(timeout_secs))
-                .header("User-Agent", "Aura-Pulse/0.3.0")
+                .header("User-Agent", "Aura-Pulse/0.4.2")
                 .json(&body);
             if !cfg.api_key.is_empty() {
                 req = req.header("Authorization", format!("Bearer {}", cfg.api_key));
@@ -870,7 +870,7 @@ async fn gemini_transcribe(client: &reqwest::Client, cfg: &ProviderCfg, mime: &s
     let resp = client
         .post(url)
         .timeout(std::time::Duration::from_secs(180))
-        .header("User-Agent", "Aura-Pulse/0.3.0")
+        .header("User-Agent", "Aura-Pulse/0.4.2")
         .json(&body)
         .send()
         .await

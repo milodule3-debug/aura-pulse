@@ -30,8 +30,11 @@ function readout(label: string, cls = ""): { el: HTMLElement; v: HTMLElement } {
 export class DiagnosticsView implements View {
   private unsub: (() => void) | null = null;
   private charts: StripChart[] = [];
+  private freqDiv = Number(localStorage.getItem("ap-telem-div")) || 1;
+  private freqHandler = ((e: Event) => { this.freqDiv = (e as CustomEvent).detail; }) as EventListener;
 
   mount(root: HTMLElement) {
+    window.addEventListener("ap-freq-changed", this.freqHandler);
     // ---------- CPU ----------
     const cpuLive = h("span", { class: "live" }, "—");
     const cpuCanvas = h("canvas", { class: "chart-canvas" }) as HTMLCanvasElement;
@@ -197,6 +200,8 @@ export class DiagnosticsView implements View {
     let frame = 0;
     this.unsub = onTelemetry((s: Snapshot) => {
       frame++;
+      // throttle rendering to user-chosen frequency
+      if (this.freqDiv > 1 && frame % this.freqDiv !== 0) return;
 
       // CPU
       cpuLive.textContent = `${s.cpu.total.toFixed(1)}%`;
@@ -307,5 +312,6 @@ export class DiagnosticsView implements View {
   unmount() {
     this.unsub?.();
     this.charts.forEach((c) => c.destroy());
+    window.removeEventListener("ap-freq-changed", this.freqHandler);
   }
 }

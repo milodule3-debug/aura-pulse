@@ -31,6 +31,11 @@ const THEMES: ThemeDef[] = [
   },
 ];
 
+// ---------- about / help ----------
+
+// Kept in sync by hand with package.json / src-tauri/tauri.conf.json / src-tauri/Cargo.toml.
+const APP_VERSION = "0.4.3";
+
 // ---------- telemetry frequency ----------
 
 /** Returns a human-readable label for a throttle divisor (1 = 10Hz, 5 = 2Hz). */
@@ -110,6 +115,29 @@ export class SettingsView implements View {
       " polling on X11. If copies are missed, ensure the correct tool is installed and your compositor is forwarding clipboard events. On Wayland, ",
       h("b", {}, "wl-clipboard"),
       " is required.",
+    );
+
+    // ═══════ about / help section ═══════
+
+    const aboutSection = h(
+      "div",
+      { class: "settings-section" },
+      h("div", { class: "settings-section-title" }, "About & Help"),
+      h(
+        "div",
+        { class: "bench-note", style: { maxWidth: "760px", lineHeight: "1.7" } },
+        h("b", {}, "Aura Pulse"),
+        ` v${APP_VERSION} — built by `,
+        h("b", {}, "Aura Code"),
+        ". ",
+        h("a", { href: "https://aurawebsite-self.vercel.app/", target: "_blank", rel: "noopener noreferrer" }, "aurawebsite-self.vercel.app"),
+        " · ",
+        h("a", { href: "https://aura-pulse-website-oujb4yixn-dusan-s-projects369.vercel.app/", target: "_blank", rel: "noopener noreferrer" }, "aura-pulse-website"),
+        h("br", {}),
+        h("br", {}),
+        h("b", {}, "Disclaimer: "),
+        "AI-generated responses (summaries, chat, benchmarks analysis, etc.) may be inaccurate or incomplete. Aura Pulse does not verify model output — treat it as a starting point, not a source of truth, and confirm anything important independently.",
+      ),
     );
 
     // ═══════ AI providers section ═══════
@@ -234,6 +262,8 @@ export class SettingsView implements View {
         h("div", { class: "settings-section-title" }, "AI Providers"),
         grid,
       ),
+
+      aboutSection,
     );
   }
 

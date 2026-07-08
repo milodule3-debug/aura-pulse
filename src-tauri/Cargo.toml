@@ -1,6 +1,6 @@
 [package]
 name = "aura-pulse"
-version = "0.4.2"
+version = "0.4.3"
 description = "Aura Pulse — system telemetry, AI clipboard vault, benchmarks"
 edition = "2021"
 

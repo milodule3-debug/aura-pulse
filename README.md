@@ -1,5 +1,7 @@
 # Aura Pulse
 
+![Aura Pulse](assets/pulse.png)
+
 **System telemetry · AI clipboard vault · hardware benchmarks — in a Tron-grade cockpit.**
 
 A native Linux desktop app built with Tauri 2: a Rust backend samples your hardware at 10 Hz and guards a SQLite clipboard vault, while a dependency-light TypeScript frontend renders it as a cyberpunk control room.
